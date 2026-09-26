@@ -362,7 +362,6 @@ export default function AdminSections() {
                 <TH>Section</TH>
                 <TH>Shift</TH>
                 <TH>Status</TH>
-                <TH>Type</TH>
                 <TH align="right">Actions</TH>
               </tr>
             </THead>
@@ -380,11 +379,6 @@ export default function AdminSections() {
                   </TD>
                   <TD>
                     <StatusBadge map={ACTIVE_STATUS} value={String(Boolean(section.is_active))} />
-                  </TD>
-                  <TD>
-                    <Badge tone={section.student_type === 'student_special' ? 'warn' : 'accent'}>
-                      {section.student_type === 'student_special' ? 'Special' : 'Regular'}
-                    </Badge>
                   </TD>
                   <TD align="right">
                     <RowActions label={`Actions for ${section.section_name}`}>
@@ -480,15 +474,10 @@ export default function AdminSections() {
             />
           </div>
 
-          <Select
-            label="Student type"
-            value={formData.student_type}
-            onChange={(event) => update('student_type', event.target.value)}
-            options={[
-              { value: 'student', label: 'Student' },
-              { value: 'student_special', label: 'Student Special' },
-            ]}
-          />
+          {/* No input for student_type on purpose. It stays in formData
+              (seeded per row by handleOpenEdit) because the whole object is
+              submitted — dropping the field would stop sending it and editing
+              any section would leave its type unmanaged. */}
         </form>
       </Modal>
 
