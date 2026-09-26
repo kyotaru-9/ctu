@@ -7,6 +7,7 @@ import {
   Button,
   DetailList,
   EmptyState,
+  LoadingBlock,
   Modal,
   PageHeader,
   REPORT_STATUS,
@@ -38,6 +39,8 @@ export default function AdminReports() {
   const [reports, setReports] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selected, setSelected] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [error, setError] = useState('')
@@ -76,14 +79,34 @@ export default function AdminReports() {
 
   const pendingCount = reports.filter((report) => report.status === 'pending').length
 
-  function openDetails(report) {
+  // The list row carries everything the table needs, but the modal is the
+  // place a report is actually reviewed, so it opens on the list row and then
+  // reloads the full record by id.
+  const openDetails = useCallback(async (report) => {
     setSelected(report)
     setAdminNote(report.admin_note || '')
-  }
+    setDetailError('')
+    setDetailLoading(true)
+    try {
+      const response = await reportService.getById(report.id)
+      if (response.success && response.data) {
+        setSelected(response.data)
+        setAdminNote(response.data.admin_note || '')
+      } else {
+        setDetailError(response.message || 'Failed to load report details')
+      }
+    } catch (err) {
+      setDetailError(err.response?.data?.message || 'Failed to load report details')
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
 
   function closeDetails() {
     setSelected(null)
     setAdminNote('')
+    setDetailError('')
+    setDetailLoading(false)
   }
 
   async function handleStatusChange(reportId, newStatus) {
@@ -234,16 +257,28 @@ export default function AdminReports() {
       >
         {selected && (
           <div className="flex flex-col gap-5">
+            {detailError && (
+              <Alert tone="bad" onDismiss={() => setDetailError('')}>
+                {detailError}
+              </Alert>
+            )}
+
             <DetailList
               items={[
                 { label: 'Reported at', value: formatDateTime(selected.reported_at) },
                 { label: 'Status', value: <StatusBadge map={REPORT_STATUS} value={selected.status} /> },
                 { label: 'Section', value: sectionLabel(selected.section) },
                 { label: 'Room', value: selected.room?.room_code || '—' },
+                selected.room?.room_name && { label: 'Room name', value: selected.room.room_name },
+                selected.room?.building && { label: 'Building', value: selected.room.building },
+                selected.room?.floor && { label: 'Floor', value: selected.room.floor },
                 { label: 'Reason', value: selected.reason?.name || '—' },
                 { label: 'Other reason', value: selected.other_reason || '—' },
+                { label: 'Reviewed at', value: formatDateTime(selected.reviewed_at) },
               ]}
             />
+
+            {detailLoading && <LoadingBlock label="Loading report…" compact />}
 
             <div>
               <p className="mb-1.5 text-xs font-medium tracking-wide text-ink-muted uppercase">

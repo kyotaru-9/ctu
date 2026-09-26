@@ -65,7 +65,7 @@ router.get('/dashboard', async (req, res) => {
     const [scheduleRes, submissionsRes, reportsRes] = await Promise.all([
       supabaseAdmin.from('schedules').select('*, rooms(*), sections(*)').eq('section_id', sectionId).eq('day_of_week', today).eq('is_active', true).order('start_time'),
       supabaseAdmin.from('room_submissions').select('*').eq('section_id', sectionId).gte('submitted_at', todayStr),
-      supabaseAdmin.from('reports').select('*, rooms(*), reason:report_reasons(*)').eq('section_id', sectionId).order('reported_at', { ascending: false }).limit(5)
+      supabaseAdmin.from('reports').select('*, room:rooms(*), reason:report_reasons(*)').eq('section_id', sectionId).order('reported_at', { ascending: false }).limit(5)
     ])
 
     const todaysSchedule = scheduleRes.data || []
@@ -270,7 +270,7 @@ router.get('/submissions', async (req, res) => {
 // Student Reports
 router.get('/reports', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('reports').select('*, rooms(*), reason:report_reasons(*)').eq('section_id', req.user.section_id).order('reported_at', { ascending: false })
+    const { data, error } = await supabaseAdmin.from('reports').select('*, room:rooms(*), reason:report_reasons(*)').eq('section_id', req.user.section_id).order('reported_at', { ascending: false })
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {
@@ -294,6 +294,7 @@ router.post('/reports', upload.single('image'), async (req, res) => {
     if (uploadError) throw uploadError
 
     const { data: urlData } = supabaseAdmin.storage.from('report-proofs').getPublicUrl(fileName)
+    const imageUrl = urlData.publicUrl
 
     const { data, error } = await supabaseAdmin.from('reports').insert({
       section_id: req.user.section_id,
@@ -301,7 +302,7 @@ router.post('/reports', upload.single('image'), async (req, res) => {
       reason_id,
       other_reason,
       description,
-      image_url: urlData.data.publicUrl,
+      image_url: imageUrl,
       status: 'pending',
       reported_by: req.user.id
     }).select().single()

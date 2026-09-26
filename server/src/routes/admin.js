@@ -561,9 +561,14 @@ router.get('/occupations/:id', async (req, res) => {
 })
 
 // Reports
+// Aliased so the embeds land on `section`/`room`, which is what the admin
+// reports table and modal read. Unaliased embeds come back plural, so the Room
+// and Section columns resolved to nothing. `reason` was already aliased.
+const REPORT_SELECT = '*, section:sections(*), room:rooms(*), reason:report_reasons(*)'
+
 router.get('/reports', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('reports').select('*, sections(id, program, year_level, section_name), rooms(*), reason:report_reasons(*)').order('reported_at', { ascending: false })
+    const { data, error } = await supabaseAdmin.from('reports').select(REPORT_SELECT).order('reported_at', { ascending: false })
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {
@@ -573,7 +578,7 @@ router.get('/reports', async (req, res) => {
 
 router.get('/reports/:id', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('reports').select('*, sections(*), rooms(*), reason:report_reasons(*)').eq('id', req.params.id).single()
+    const { data, error } = await supabaseAdmin.from('reports').select(REPORT_SELECT).eq('id', req.params.id).single()
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {
@@ -635,12 +640,21 @@ router.delete('/report-reasons/:id', async (req, res) => {
 // Analytics
 router.get('/analytics/overview', async (req, res) => {
   try {
-    const [sectionsRes, roomsRes, reportsRes, submissionsRes] = await Promise.all([
+    const [sectionsRes, roomsRes, reportsRes, submissionsRes, complianceRes] = await Promise.all([
       supabaseAdmin.from('sections').select('id', { count: 'exact', head: true }).eq('is_active', true),
       supabaseAdmin.from('rooms').select('id', { count: 'exact', head: true }).eq('is_active', true),
       supabaseAdmin.from('reports').select('id', { count: 'exact', head: true }),
-      supabaseAdmin.from('room_submissions').select('id', { count: 'exact', head: true })
+      supabaseAdmin.from('room_submissions').select('id', { count: 'exact', head: true }),
+      supabaseAdmin.from('compliance_records').select('compliance_rate')
     ])
+    if (complianceRes.error) throw complianceRes.error
+
+    // Averaged from the recorded rates. This used to be a hardcoded 85, which
+    // the overview card presented as a real compliance figure.
+    const rates = (complianceRes.data || []).map((row) => Number(row.compliance_rate) || 0)
+    const avgCompliance = rates.length
+      ? Math.round(rates.reduce((sum, rate) => sum + rate, 0) / rates.length)
+      : 0
 
     res.json({
       success: true,
@@ -649,7 +663,7 @@ router.get('/analytics/overview', async (req, res) => {
         totalRooms: roomsRes.count || 0,
         totalReports: reportsRes.count || 0,
         totalSubmissions: submissionsRes.count || 0,
-        avgCompliance: 85
+        avgCompliance
       }
     })
   } catch (err) {
@@ -659,9 +673,34 @@ router.get('/analytics/overview', async (req, res) => {
 
 router.get('/analytics/sections', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('compliance_records').select('*, sections(*)').order('period_start', { ascending: false })
+    const { data, error } = await supabaseAdmin
+      .from('compliance_records')
+      .select('*, section:sections(id, program, year_level, section_name)')
+      .order('period_start', { ascending: false })
     if (error) throw error
-    res.json({ success: true, data })
+
+    // compliance_records keeps its totals under long column names. Renamed here
+    // so the table does not have to guess, and `missing` is derived from the two
+    // it already had.
+    const shaped = (data || []).map((row) => {
+      const expected = row.total_expected_submissions || 0
+      const completed = row.total_completed_submissions || 0
+
+      return {
+        id: row.id,
+        section_id: row.section_id,
+        section: row.section,
+        period_start: row.period_start,
+        period_end: row.period_end,
+        expected,
+        completed,
+        missing: Math.max(expected - completed, 0),
+        late: row.total_late_submissions || 0,
+        compliance_rate: Number(row.compliance_rate) || 0
+      }
+    })
+
+    res.json({ success: true, data: shaped })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to load section compliance' })
   }
@@ -669,9 +708,44 @@ router.get('/analytics/sections', async (req, res) => {
 
 router.get('/analytics/rooms', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('reports').select('room_id, reason:report_reasons(name)').order('reported_at', { ascending: false })
+    const { data, error } = await supabaseAdmin
+      .from('reports')
+      .select('room_id, reason:report_reasons(name), room:rooms(room_code, room_name)')
     if (error) throw error
-    res.json({ success: true, data })
+
+    // This used to return one row per report, so the panel could not rank rooms
+    // by volume as its own subtitle claims. Aggregate to one row per room.
+    const byRoom = new Map()
+
+    ;(data || []).forEach((report) => {
+      const key = report.room_id
+      if (!key) return
+
+      if (!byRoom.has(key)) {
+        byRoom.set(key, {
+          room_id: key,
+          room_code: report.room?.room_code,
+          room_name: report.room?.room_name,
+          total_reports: 0,
+          reasonCounts: new Map()
+        })
+      }
+
+      const entry = byRoom.get(key)
+      entry.total_reports += 1
+
+      const reason = report.reason?.name
+      if (reason) entry.reasonCounts.set(reason, (entry.reasonCounts.get(reason) || 0) + 1)
+    })
+
+    const shaped = [...byRoom.values()]
+      .map(({ reasonCounts, ...room }) => {
+        const top = [...reasonCounts.entries()].sort((a, b) => b[1] - a[1])[0]
+        return { ...room, most_common_issue: top?.[0] ?? null }
+      })
+      .sort((a, b) => b.total_reports - a.total_reports)
+
+    res.json({ success: true, data: shaped })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to load room issues' })
   }
@@ -679,8 +753,27 @@ router.get('/analytics/rooms', async (req, res) => {
 
 router.get('/analytics/reasons', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('report_reasons').select('id, name, count:reports(count)')
-    if (error) throw error
+    const [reasonsRes, reportsRes] = await Promise.all([
+      supabaseAdmin.from('report_reasons').select('id, name').order('name'),
+      supabaseAdmin.from('reports').select('reason_id')
+    ])
+    if (reasonsRes.error) throw reasonsRes.error
+    if (reportsRes.error) throw reportsRes.error
+
+    // Counted in JS so `count` is a number. The previous
+    // `count:reports(count)` embed returned an array of { count } rows, and the
+    // bar list tried to render that array as a React child, which threw.
+    const counts = new Map()
+    ;(reportsRes.data || []).forEach((report) => {
+      counts.set(report.reason_id, (counts.get(report.reason_id) || 0) + 1)
+    })
+
+    const data = (reasonsRes.data || []).map((reason) => ({
+      id: reason.id,
+      name: reason.name,
+      count: counts.get(reason.id) || 0
+    }))
+
     res.json({ success: true, data })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to load report reasons' })
@@ -689,8 +782,29 @@ router.get('/analytics/reasons', async (req, res) => {
 
 router.get('/analytics/trends', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('reports').select('reported_at').gte('reported_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-    if (error) throw error
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+    const [reportsRes, submissionsRes] = await Promise.all([
+      supabaseAdmin.from('reports').select('reported_at').gte('reported_at', since),
+      supabaseAdmin.from('room_submissions').select('submitted_at').gte('submitted_at', since)
+    ])
+    if (reportsRes.error) throw reportsRes.error
+    if (submissionsRes.error) throw submissionsRes.error
+
+    // Bucketed by month, so the panel plots periods instead of listing one row
+    // per record — which also gave every row an undefined `period` key.
+    const periods = new Map()
+    const record = (value, field) => {
+      const period = value ? String(value).slice(0, 7) : null
+      if (!period) return
+      if (!periods.has(period)) periods.set(period, { period, reports: 0, submissions: 0 })
+      periods.get(period)[field] += 1
+    }
+
+    ;(reportsRes.data || []).forEach((row) => record(row.reported_at, 'reports'))
+    ;(submissionsRes.data || []).forEach((row) => record(row.submitted_at, 'submissions'))
+
+    const data = [...periods.values()].sort((a, b) => a.period.localeCompare(b.period))
     res.json({ success: true, data })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to load trends' })

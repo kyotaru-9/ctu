@@ -251,7 +251,7 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
 // Special Student Reports
 router.get('/reports', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('reports').select('*, rooms(*), reason:report_reasons(*)').eq('section_id', req.user.section_id).order('reported_at', { ascending: false })
+    const { data, error } = await supabaseAdmin.from('reports').select('*, room:rooms(*), reason:report_reasons(*)').eq('section_id', req.user.section_id).order('reported_at', { ascending: false })
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {
@@ -275,6 +275,7 @@ router.post('/reports', upload.single('image'), async (req, res) => {
     if (uploadError) throw uploadError
 
     const { data: urlData } = supabaseAdmin.storage.from('report-proofs').getPublicUrl(fileName)
+    const imageUrl = urlData.publicUrl
 
     const { data, error } = await supabaseAdmin.from('reports').insert({
       section_id: req.user.section_id,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { analyticsService } from '../../services/analyticsService'
+import { formatDate, sectionLabel } from '../../lib/format'
 import {
   Alert,
   BarList,
@@ -148,6 +149,7 @@ export default function AdminAnalytics() {
                   <THead>
                     <tr>
                       <TH>Section</TH>
+                      <TH>Period</TH>
                       <TH align="right">Expected</TH>
                       <TH align="right">Done</TH>
                       <TH align="right">Missing</TH>
@@ -156,39 +158,39 @@ export default function AdminAnalytics() {
                     </tr>
                   </THead>
                   <TBody>
-                    {sectionCompliance.map((row) => {
-                      const rate = row.compliance_rate ?? row.compliance ?? 0
-                      return (
-                        <TR key={row.section_id || row.section}>
-                          <TD className="font-medium">{row.section_name || row.section}</TD>
-                          <TD align="right" className="tabular">
-                            {row.expected ?? row.total_expected ?? 0}
-                          </TD>
-                          <TD align="right" className="tabular">
-                            {row.completed ?? row.total_completed ?? 0}
-                          </TD>
-                          <TD align="right" className="tabular">
-                            {row.missing ?? row.total_missing ?? 0}
-                          </TD>
-                          <TD align="right" className="tabular">
-                            {row.late ?? row.total_late ?? 0}
-                          </TD>
-                          <TD>
-                            <div className="flex items-center gap-2.5">
-                              <Progress
-                                value={rate}
-                                tone={complianceTone(rate)}
-                                label={`Compliance for ${row.section_name || row.section}`}
-                                className="min-w-16 flex-1"
-                              />
-                              <span className="tabular w-9 shrink-0 text-right text-sm font-medium text-ink">
-                                {rate}%
-                              </span>
-                            </div>
-                          </TD>
-                        </TR>
-                      )
-                    })}
+                    {sectionCompliance.map((row) => (
+                      <TR key={row.id}>
+                        <TD className="font-medium">{sectionLabel(row.section)}</TD>
+                        <TD className="whitespace-nowrap text-ink-muted">
+                          {formatDate(row.period_start)} – {formatDate(row.period_end)}
+                        </TD>
+                        <TD align="right" className="tabular">
+                          {row.expected}
+                        </TD>
+                        <TD align="right" className="tabular">
+                          {row.completed}
+                        </TD>
+                        <TD align="right" className="tabular">
+                          {row.missing}
+                        </TD>
+                        <TD align="right" className="tabular">
+                          {row.late}
+                        </TD>
+                        <TD>
+                          <div className="flex items-center gap-2.5">
+                            <Progress
+                              value={row.compliance_rate}
+                              tone={complianceTone(row.compliance_rate)}
+                              label={`Compliance for ${sectionLabel(row.section)}`}
+                              className="min-w-16 flex-1"
+                            />
+                            <span className="tabular w-9 shrink-0 text-right text-sm font-medium text-ink">
+                              {row.compliance_rate}%
+                            </span>
+                          </div>
+                        </TD>
+                      </TR>
+                    ))}
                   </TBody>
                 </Table>
               </ScrollX>
@@ -211,12 +213,17 @@ export default function AdminAnalytics() {
                   </THead>
                   <TBody>
                     {roomIssues.map((row) => (
-                      <TR key={row.room_id || row.room}>
-                        <TD className="tabular font-medium">{row.room_code || row.room}</TD>
-                        <TD align="right" className="tabular">
-                          {row.total_reports ?? row.totalReports ?? 0}
+                      <TR key={row.room_id}>
+                        <TD className="tabular font-medium">
+                          {row.room_code || '—'}
+                          {row.room_name && (
+                            <span className="ml-1.5 font-normal text-ink-muted">{row.room_name}</span>
+                          )}
                         </TD>
-                        <TD>{row.most_common_issue || row.commonIssue || '—'}</TD>
+                        <TD align="right" className="tabular">
+                          {row.total_reports}
+                        </TD>
+                        <TD>{row.most_common_issue || '—'}</TD>
                       </TR>
                     ))}
                   </TBody>
@@ -233,8 +240,9 @@ export default function AdminAnalytics() {
               <CardBody>
                 <BarList
                   items={reportReasons.map((row) => ({
-                    label: row.reason_name || row.reason,
-                    value: row.count || 0,
+                    id: row.id,
+                    label: row.name,
+                    value: row.count,
                   }))}
                 />
               </CardBody>
@@ -260,10 +268,10 @@ export default function AdminAnalytics() {
                       <TR key={row.period}>
                         <TD className="font-medium">{row.period}</TD>
                         <TD align="right" className="tabular">
-                          {row.reports || 0}
+                          {row.reports}
                         </TD>
                         <TD align="right" className="tabular">
-                          {row.submissions || 0}
+                          {row.submissions}
                         </TD>
                       </TR>
                     ))}

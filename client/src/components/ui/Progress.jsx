@@ -40,7 +40,7 @@ export function BarList({ items, emptyLabel = 'No data' }) {
   return (
     <ul className="flex flex-col gap-3">
       {items.map((item) => (
-        <li key={item.label}>
+        <li key={item.id ?? item.label}>
           <div className="mb-1.5 flex items-baseline justify-between gap-3">
             <span className="min-w-0 flex-1 truncate text-sm text-ink">{item.label}</span>
             <span className="tabular shrink-0 text-sm font-medium text-ink">{item.value}</span>

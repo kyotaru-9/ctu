@@ -204,7 +204,7 @@ export default function ReportsPage({ heading = 'Reports' }) {
         resetForm()
         await loadReports()
       } else {
-        setFormError(response.data?.message || 'Failed to submit the report.')
+        setFormError(response.message || 'Failed to submit the report.')
       }
     } catch (err) {
       setFormError(err.response?.data?.message || 'Failed to submit the report.')
