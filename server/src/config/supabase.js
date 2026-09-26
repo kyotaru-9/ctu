@@ -17,5 +17,11 @@ export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false
+  },
+  global: {
+    headers: {
+      'apikey': supabaseServiceRoleKey,
+      'Authorization': `Bearer ${supabaseServiceRoleKey}`
+    }
   }
 })

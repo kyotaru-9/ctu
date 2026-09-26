@@ -26,7 +26,7 @@ export async function authenticateUser(req, res, next) {
     
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('*')
+      .select('id, auth_user_id, role, full_name, email, section_id, is_active, created_at, updated_at')
       .eq('auth_user_id', user.id)
       .single()
     

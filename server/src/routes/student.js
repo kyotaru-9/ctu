@@ -23,7 +23,7 @@ const upload = multer({
 // column. The submission's own room embed is left out on purpose: aliasing it
 // to `room` as well would collide with the occupation's and PostgREST would
 // drop one of them.
-const HISTORY_SELECT = '*, occupations(*, room:rooms(*), schedule:schedules(subject_name))'
+const HISTORY_SELECT = '*, occupations(*)'
 
 /**
  * Collapses a flat list of room_submissions into one record per occupation with
@@ -39,8 +39,8 @@ function groupByOccupation(submissions) {
       grouped[key] = {
         id: sub.occupation_id,
         date: sub.occupations?.occupation_date,
-        room: sub.occupations?.room,
-        subject: sub.occupations?.schedule?.subject_name,
+        room: sub.occupations?.rooms || sub.occupations?.room_id,
+        subject: sub.occupations?.schedules?.subject_name || sub.occupations?.schedule_id,
         before: null,
         after: null
       }
@@ -63,14 +63,42 @@ router.get('/dashboard', async (req, res) => {
     const todayStr = new Date().toISOString().split('T')[0]
 
     const [scheduleRes, submissionsRes, reportsRes] = await Promise.all([
-      supabaseAdmin.from('schedules').select('*, rooms(*), sections(*)').eq('section_id', sectionId).eq('day_of_week', today).eq('is_active', true).order('start_time'),
-      supabaseAdmin.from('room_submissions').select('*').eq('section_id', sectionId).gte('submitted_at', todayStr),
-      supabaseAdmin.from('reports').select('*, room:rooms(*), reason:report_reasons(*)').eq('section_id', sectionId).order('reported_at', { ascending: false }).limit(5)
+      supabaseAdmin.from('schedules').select('id, section_id, room_id, subject_name, instructor_name, day_of_week, start_time, end_time, is_active, created_at, updated_at').eq('section_id', sectionId).eq('day_of_week', today).eq('is_active', true).order('start_time'),
+      supabaseAdmin.from('room_submissions').select('id, occupation_id, section_id, room_id, submission_type, image_url, submitted_at, submitted_time, condition, notes, submitted_by, created_at').eq('section_id', sectionId).gte('submitted_at', todayStr),
+      supabaseAdmin.from('reports').select('id, section_id, room_id, occupation_id, reported_by, reason_id, other_reason, description, image_url, status, admin_note, reported_at, reviewed_at, reviewed_by, created_at, updated_at').eq('section_id', sectionId).order('reported_at', { ascending: false }).limit(5)
     ])
 
     const todaysSchedule = scheduleRes.data || []
     const submissions = submissionsRes.data || []
     const reports = reportsRes.data || []
+
+    // Fetch related data for schedules
+    const roomIds = [...new Set(todaysSchedule.map(s => s.room_id))]
+    const secIds = [...new Set(todaysSchedule.map(s => s.section_id))]
+    const [roomsData, sectionsData] = await Promise.all([
+      supabaseAdmin.from('rooms').select('id, room_code, room_name, building, floor').in('id', roomIds),
+      supabaseAdmin.from('sections').select('id, program, year_level, section_name, shift, mayor_name').in('id', secIds)
+    ])
+
+    const enrichedSchedule = todaysSchedule.map(schedule => ({
+      ...schedule,
+      rooms: roomsData.data?.find(r => r.id === schedule.room_id) || null,
+      sections: sectionsData.data?.find(s => s.id === schedule.section_id) || null
+    }))
+
+    // Fetch related data for reports
+    const reportRoomIds = [...new Set(reports.map(r => r.room_id))]
+    const reportReasonIds = [...new Set(reports.map(r => r.reason_id))]
+    const [reportRoomsData, reportReasonsData] = await Promise.all([
+      supabaseAdmin.from('rooms').select('id, room_code, room_name, building, floor').in('id', reportRoomIds),
+      supabaseAdmin.from('report_reasons').select('id, name, description').in('id', reportReasonIds)
+    ])
+
+    const enrichedReports = reports.map(report => ({
+      ...report,
+      rooms: reportRoomsData.data?.find(r => r.id === report.room_id) || null,
+      report_reasons: reportReasonsData.data?.find(r => r.id === report.reason_id) || null
+    }))
 
     const before = submissions.find(s => s.submission_type === 'before')
     const after = submissions.find(s => s.submission_type === 'after')
@@ -78,24 +106,51 @@ router.get('/dashboard', async (req, res) => {
     res.json({
       success: true,
       data: {
-        todaysSchedule,
+        todaysSchedule: enrichedSchedule,
         submissionStatus: { before, after },
-        recentReports: reports
+        recentReports: enrichedReports
       }
     })
-} catch (err) {
-    console.error('POST /submissions/before error:', err);
-    res.status(500).json({ success: false, message: err.message || 'Failed to submit' })
+  } catch (err) {
+    console.error('Dashboard error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Failed to load dashboard' })
   }
 })
 
 // Student Schedule
 router.get('/schedule', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('schedules').select('*, rooms(*), sections(*)').eq('section_id', req.user.section_id).eq('is_active', true).order('day_of_week').order('start_time')
+    console.log('Schedule query - section_id:', req.user.section_id)
+    const { data: schedules, error } = await supabaseAdmin
+      .from('schedules')
+      .select('id, section_id, room_id, subject_name, instructor_name, day_of_week, start_time, end_time, is_active, created_at, updated_at')
+      .eq('section_id', req.user.section_id)
+      .eq('is_active', true)
+      .order('day_of_week')
+      .order('start_time')
+    
+    console.log('Schedule query result:', { error, data: schedules })
     if (error) throw error
-    res.json({ success: true, data })
+
+    // Fetch related data separately
+    const roomIds = [...new Set(schedules.map(s => s.room_id))]
+    const sectionIds = [...new Set(schedules.map(s => s.section_id))]
+    
+    const [roomsData, sectionsData] = await Promise.all([
+      supabaseAdmin.from('rooms').select('id, room_code, room_name, building, floor').in('id', roomIds),
+      supabaseAdmin.from('sections').select('id, program, year_level, section_name, shift, mayor_name').in('id', sectionIds)
+    ])
+
+    // Merge the data
+    const enrichedSchedules = schedules.map(schedule => ({
+      ...schedule,
+      rooms: roomsData.data?.find(r => r.id === schedule.room_id) || null,
+      sections: sectionsData.data?.find(s => s.id === schedule.section_id) || null
+    }))
+
+    res.json({ success: true, data: enrichedSchedules })
   } catch (err) {
+    console.error('Schedule error:', err)
     res.status(500).json({ success: false, message: 'Failed to load schedule' })
   }
 })
@@ -258,11 +313,30 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
 
 router.get('/submissions', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('room_submissions').select(HISTORY_SELECT).eq('section_id', req.user.section_id).order('submitted_at', { ascending: false })
+    const { data: submissions, error } = await supabaseAdmin
+      .from('room_submissions')
+      .select('id, occupation_id, section_id, room_id, submission_type, image_url, submitted_at, submitted_time, condition, notes, submitted_by, created_at')
+      .eq('section_id', req.user.section_id)
+      .order('submitted_at', { ascending: false })
+    
     if (error) throw error
 
-    res.json({ success: true, data: groupByOccupation(data) })
+    // Fetch related data separately
+    const occupationIds = [...new Set(submissions.map(s => s.occupation_id))]
+    const { data: occupations } = await supabaseAdmin
+      .from('occupations')
+      .select('id, section_id, room_id, schedule_id, occupation_date, started_at, ended_at, status, created_at, updated_at, rooms(id, room_code, room_name, building, floor), schedules(id, subject_name, instructor_name)')
+      .in('id', occupationIds)
+
+    // Merge the data
+    const enrichedSubmissions = submissions.map(sub => ({
+      ...sub,
+      occupations: occupations?.find(o => o.id === sub.occupation_id) || null
+    }))
+
+    res.json({ success: true, data: groupByOccupation(enrichedSubmissions) })
   } catch (err) {
+    console.error('Error loading submissions:', err)
     res.status(500).json({ success: false, message: 'Failed to load submissions' })
   }
 })
@@ -270,10 +344,35 @@ router.get('/submissions', async (req, res) => {
 // Student Reports
 router.get('/reports', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('reports').select('*, room:rooms(*), reason:report_reasons(*)').eq('section_id', req.user.section_id).order('reported_at', { ascending: false })
+    console.log('Reports query - section_id:', req.user.section_id)
+    const { data: reports, error } = await supabaseAdmin
+      .from('reports')
+      .select('id, section_id, room_id, occupation_id, reported_by, reason_id, other_reason, description, image_url, status, admin_note, reported_at, reviewed_at, reviewed_by, created_at, updated_at')
+      .eq('section_id', req.user.section_id)
+      .order('reported_at', { ascending: false })
+    
+    console.log('Reports query result:', { error, data: reports })
     if (error) throw error
-    res.json({ success: true, data })
+
+    // Fetch related data separately
+    const roomIds = [...new Set(reports.map(r => r.room_id))]
+    const reasonIds = [...new Set(reports.map(r => r.reason_id))]
+    
+    const [roomsData, reasonsData] = await Promise.all([
+      supabaseAdmin.from('rooms').select('id, room_code, room_name, building, floor').in('id', roomIds),
+      supabaseAdmin.from('report_reasons').select('id, name, description').in('id', reasonIds)
+    ])
+
+    // Merge the data
+    const enrichedReports = reports.map(report => ({
+      ...report,
+      rooms: roomsData.data?.find(r => r.id === report.room_id) || null,
+      report_reasons: reasonsData.data?.find(r => r.id === report.reason_id) || null
+    }))
+
+    res.json({ success: true, data: enrichedReports })
   } catch (err) {
+    console.error('Reports error:', err)
     res.status(500).json({ success: false, message: 'Failed to load reports' })
   }
 })
@@ -329,13 +428,34 @@ router.get('/report-reasons', async (req, res) => {
 router.get('/submissions/my', async (req, res) => {
   try {
     const sectionId = req.user?.section_id
+    console.log('Submissions query - section_id:', sectionId)
     if (!sectionId) {
       return res.status(400).json({ success: false, message: 'User section not found' })
     }
-    const { data, error } = await supabaseAdmin.from('room_submissions').select(HISTORY_SELECT).eq('section_id', sectionId).order('submitted_at', { ascending: false })
+    
+    const { data: submissions, error } = await supabaseAdmin
+      .from('room_submissions')
+      .select('id, occupation_id, section_id, room_id, submission_type, image_url, submitted_at, submitted_time, condition, notes, submitted_by, created_at')
+      .eq('section_id', sectionId)
+      .order('submitted_at', { ascending: false })
+    
+    console.log('Submissions query result:', { error, data: submissions })
     if (error) throw error
 
-    res.json({ success: true, data: groupByOccupation(data) })
+    // Fetch related data separately
+    const occupationIds = [...new Set(submissions.map(s => s.occupation_id))]
+    const { data: occupations } = await supabaseAdmin
+      .from('occupations')
+      .select('id, section_id, room_id, schedule_id, occupation_date, started_at, ended_at, status, created_at, updated_at, rooms(id, room_code, room_name, building, floor), schedules(id, subject_name, instructor_name)')
+      .in('id', occupationIds)
+
+    // Merge the data
+    const enrichedSubmissions = submissions.map(sub => ({
+      ...sub,
+      occupations: occupations?.find(o => o.id === sub.occupation_id) || null
+    }))
+
+    res.json({ success: true, data: groupByOccupation(enrichedSubmissions) })
   } catch (err) {
     console.error('[Server] Error loading submissions:', err)
     res.status(500).json({ success: false, message: 'Failed to load submissions' })
