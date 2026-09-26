@@ -92,7 +92,7 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems }) {
           <NavLink to={`${basePath}/dashboard`} className="flex min-w-0 items-center gap-2.5">
             <Logo />
             <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-ink">CTU Clean-Track</span>
+              <span className="block truncate text-sm font-semibold text-ink">CTU</span>
               <span className="block truncate text-xs text-ink-muted">{roleLabel}</span>
             </span>
           </NavLink>
@@ -123,7 +123,7 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems }) {
 
             <div className="flex min-w-0 items-center gap-2.5 lg:hidden">
               <Logo />
-              <span className="truncate text-sm font-semibold text-ink">CTU Clean-Track</span>
+              <span className="truncate text-sm font-semibold text-ink">CTU</span>
             </div>
 
             <div className="ms-auto flex items-center gap-2">

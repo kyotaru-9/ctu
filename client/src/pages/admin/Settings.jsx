@@ -17,8 +17,8 @@ import {
 } from '../../components/ui'
 
 const GENERAL_DEFAULTS = {
-  systemName: 'CTU Clean-Track',
-  institution: 'Cebu Technological University',
+  systemName: 'CTU',
+  institution: 'Cebu Technological University - Naga Extension Campus',
   timeLimit: 30,
   maxImageSize: 10,
   imageTypes: 'jpg, jpeg, png, webp',

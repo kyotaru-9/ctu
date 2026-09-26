@@ -100,7 +100,7 @@ export default function QRScan() {
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <Logo size="lg" className="mb-4" />
-          <h1 className="text-lg font-semibold tracking-tight text-ink">CTU Clean-Track</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-ink">CTU</h1>
           <p className="mt-1 text-sm text-ink-muted">Classroom cleanliness monitoring</p>
         </div>
 

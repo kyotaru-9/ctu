@@ -1,4 +1,4 @@
--- Seed Data for CTU Clean-Track-Update
+-- Seed Data for CTU
 -- Run this after all migrations
 
 -- Insert report reasons

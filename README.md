@@ -1,6 +1,6 @@
-# CTU Clean-Track-Update
+# CTU
 
-Classroom cleanliness monitoring and reporting system for Cebu Technological University.
+Classroom cleanliness monitoring and reporting system for Cebu Technological University - Naga Extension Campus.
 
 ## Tech Stack
 

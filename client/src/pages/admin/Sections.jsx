@@ -124,12 +124,70 @@ function CredentialsModal({ open, onClose, title, intro, accounts, section, note
   )
 }
 
+const CASCADE_LABELS = {
+  schedules: 'schedule',
+  occupations: 'occupation',
+  submissions: 'room submission',
+  reports: 'report',
+  complianceRecords: 'compliance record',
+}
+
+/**
+ * Names the rows a section delete takes with it. Everything here references
+ * sections(id) ON DELETE CASCADE, so the counts are exact rather than a warning
+ * about "your data". Accounts are listed separately because profiles.section_id
+ * has no foreign key, so they outlive the section.
+ */
+function CascadeList({ impact }) {
+  const destroying = Object.keys(CASCADE_LABELS)
+    .map((key) => [key, impact?.[key] ?? 0])
+    .filter(([, count]) => count > 0)
+
+  const accounts = impact?.accounts ?? 0
+
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      {destroying.length > 0 ? (
+        <div className="rounded-md border border-bad/30 bg-bad-soft p-3">
+          <p className="text-xs font-semibold tracking-wide text-bad uppercase">
+            Also deleted
+          </p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {destroying.map(([key, count]) => (
+              <li key={key} className="flex items-baseline justify-between gap-3 text-sm text-ink">
+                <span>
+                  {count} {CASCADE_LABELS[key]}
+                  {count === 1 ? '' : 's'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="text-sm text-ink-muted">
+          This section has no schedules, occupations, submissions or reports, so nothing else goes
+          with it.
+        </p>
+      )}
+
+      {accounts > 0 && (
+        <p className="text-sm text-ink-muted">
+          {accounts} login {accounts === 1 ? 'account' : 'accounts'} will keep working, but will no
+          longer be tied to a section.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function AdminSections() {
   const [sections, setSections] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingSection, setEditingSection] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteImpact, setDeleteImpact] = useState(null)
+  const [impactLoading, setImpactLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -235,17 +293,51 @@ export default function AdminSections() {
     }
   }
 
+  /**
+   * Opens the confirmation with the cascade cost already counted, so the dialog
+   * can name the rows that are about to go rather than gesturing at them.
+   */
+  async function openDeleteDialog(section) {
+    setDeleteTarget(section)
+    setDeleteImpact(null)
+    setError('')
+    setImpactLoading(true)
+    try {
+      const response = await sectionService.getDeleteImpact(section.id)
+      if (response.success) {
+        setDeleteImpact(response.data)
+      } else {
+        setError(response.message || 'Could not check what this section owns')
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not check what this section owns')
+    } finally {
+      setImpactLoading(false)
+    }
+  }
+
+  function closeDeleteDialog() {
+    setDeleteTarget(null)
+    setDeleteImpact(null)
+    setImpactLoading(false)
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return
     setDeleting(true)
+    setError('')
     try {
       const response = await sectionService.delete(deleteTarget.id)
-      if (response.success) await fetchSections()
-    } catch {
-      // Ignore — the confirm dialog closes either way.
+      if (!response.success) {
+        setError(response.message || 'Failed to delete section')
+        return
+      }
+      closeDeleteDialog()
+      await fetchSections()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete section')
     } finally {
       setDeleting(false)
-      setDeleteTarget(null)
     }
   }
 
@@ -404,7 +496,7 @@ export default function AdminSections() {
                         icon={biTrash}
                         label="Delete section"
                         tone="bad"
-                        onClick={() => setDeleteTarget(section)}
+                        onClick={() => openDeleteDialog(section)}
                       />
                     </RowActions>
                   </TD>
@@ -474,26 +566,33 @@ export default function AdminSections() {
             />
           </div>
 
-          {/* No input for student_type on purpose. It stays in formData
-              (seeded per row by handleOpenEdit) because the whole object is
-              submitted — dropping the field would stop sending it and editing
-              any section would leave its type unmanaged. */}
+          {/* No input for student_type on purpose, on either form. It stays in
+              formData (seeded per row by handleOpenEdit) because the whole object
+              is submitted — dropping the field would stop sending it and editing
+              any section would leave its type unmanaged. New sections fall back
+              to the 'student' default in BLANK_FORM. */}
         </form>
       </Modal>
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
+        onClose={closeDeleteDialog}
         onConfirm={handleDelete}
         loading={deleting}
         title="Delete section"
         description={
           deleteTarget
-            ? `Delete ${deleteTarget.program} ${deleteTarget.year_level}${deleteTarget.section_name}? Its schedule and history will no longer be accessible. This cannot be undone.`
+            ? `Permanently delete ${deleteTarget.program} ${deleteTarget.year_level}${deleteTarget.section_name}? This cannot be undone.`
             : ''
         }
-        confirmLabel="Delete section"
-      />
+        confirmLabel="Delete permanently"
+      >
+        {impactLoading ? (
+          <p className="mt-3 text-sm text-ink-muted">Checking what this section owns…</p>
+        ) : (
+          deleteImpact && <CascadeList impact={deleteImpact} />
+        )}
+      </ConfirmDialog>
 
       {/* Regenerate password */}
       <ConfirmDialog

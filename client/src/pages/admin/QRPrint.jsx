@@ -119,8 +119,8 @@ export default function AdminQRPrint() {
         <CardBody className="flex flex-col items-center p-8 text-center">
           <i className="bi bi-building-fill mb-4 text-3xl text-accent" aria-hidden="true" />
           <h1 className="text-base font-semibold tracking-wide text-ink uppercase">
-            CTU Clean-Track
-          </h1>
+              CTU
+            </h1>
           <p className="mt-1 text-xs text-ink-muted">Classroom cleanliness monitoring</p>
 
           <div className="my-6 w-full rounded-md border border-line bg-surface-sunken p-4 text-start">

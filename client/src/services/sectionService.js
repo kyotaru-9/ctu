@@ -36,6 +36,15 @@ export const sectionService = {
     return response.data
   },
 
+  /**
+   * Row counts for everything a hard delete would cascade into, so the
+   * confirmation can state the cost before it happens.
+   */
+  async getDeleteImpact(id) {
+    const response = await api.get(`/admin/sections/${id}/impact`)
+    return response.data
+  },
+
   async toggleStatus(id) {
     console.log('[sectionService] toggleStatus called with id:', id)
     const response = await api.patch(`/admin/sections/${id}/status`)

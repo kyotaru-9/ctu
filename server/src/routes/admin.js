@@ -372,11 +372,60 @@ router.post('/sections/:id/regenerate-credentials', async (req, res) => {
   }
 })
 
+/**
+ * Counts what a hard delete would take with it.
+ *
+ * Every table below references sections(id) ON DELETE CASCADE, so these are the
+ * exact row counts the confirmation dialog has to state before the delete goes
+ * through. profiles.section_id carries no foreign key at all, so accounts are
+ * reported for information only and survive the delete.
+ */
+router.get('/sections/:id/impact', async (req, res) => {
+  try {
+    const sectionId = req.params.id
+    const tables = [
+      ['accounts', 'profiles'],
+      ['schedules', 'schedules'],
+      ['occupations', 'occupations'],
+      ['submissions', 'room_submissions'],
+      ['reports', 'reports'],
+      ['complianceRecords', 'compliance_records']
+    ]
+
+    const counts = await Promise.all(
+      tables.map(async ([key, table]) => {
+        const { count, error } = await supabaseAdmin
+          .from(table)
+          .select('id', { count: 'exact', head: true })
+          .eq('section_id', sectionId)
+        if (error) throw error
+        return [key, count || 0]
+      })
+    )
+
+    res.json({ success: true, data: Object.fromEntries(counts) })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to check what this section owns' })
+  }
+})
+
 router.delete('/sections/:id', async (req, res) => {
   try {
-    const { error } = await supabaseAdmin.from('sections').update({ is_active: false }).eq('id', req.params.id)
+    // A real delete, not a deactivate. PostgREST reports a delete that matched
+    // nothing as an empty result rather than an error, hence maybeSingle.
+    const { data, error } = await supabaseAdmin
+      .from('sections')
+      .delete()
+      .eq('id', req.params.id)
+      .select('id')
+      .maybeSingle()
+
     if (error) throw error
-    res.json({ success: true, message: 'Section deactivated' })
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Section not found' })
+    }
+
+    res.json({ success: true, message: 'Section deleted' })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to delete section' })
   }

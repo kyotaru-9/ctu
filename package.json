@@ -1,7 +1,7 @@
 {
   "name": "ctu-clean-track-update",
   "version": "1.0.0",
-  "description": "CTU Clean-Track-Update - Classroom cleanliness monitoring system",
+  "description": "CTU - Classroom cleanliness monitoring system",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",

@@ -13,7 +13,7 @@ process.on('uncaughtException', (error) => {
 })
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`CTU Clean-Track-Update API running on port ${PORT}`)
+    console.log(`CTU API running on port ${PORT}`)
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`)
 })
 

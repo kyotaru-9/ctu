@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 /* ==========================================================================
-   CTU Clean-Track — Minimalist Design System
+        CTU — Minimalist Design System
    Monochrome surfaces, hairline borders, one accent, semantic tint for status.
    ========================================================================== */
 
@@ -26,6 +26,13 @@
   --color-accent-hover: #2650bb;
   --color-accent-soft: #eef2fd;
   --color-accent-ink: #1e3f96;
+
+  /* --- CTU institutional palette -----------------------------------------
+     Sampled from the campus mark. Used only for the login backdrop wash;
+     the app chrome stays on the single accent above. */
+  --color-brand-gold: #fec149;
+  --color-brand-blue: #0151b3;
+  --color-brand-teal: #4fa6be;
 
   /* --- Semantic (used sparingly: status, never large fills) -------------- */
   --color-ok: #17795e;
