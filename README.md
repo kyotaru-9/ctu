@@ -149,6 +149,28 @@ npm run build
 
 ## Deployment
 
+### Vercel (Recommended)
+
+This project is configured for Vercel deployment with both client and server:
+
+1. Push your code to GitHub
+2. Import the project in Vercel
+3. Set the following environment variables in Vercel:
+   - `CLIENT_URL` - Your Vercel domain (e.g., `https://your-project.vercel.app`)
+   - `NODE_ENV` - Set to `production`
+   - `SUPABASE_URL` - Your Supabase project URL
+   - `SUPABASE_ANON_KEY` - Your Supabase anon key
+   - `SUPABASE_SERVICE_ROLE_KEY` - Your Supabase service role key
+4. Deploy
+
+The project uses:
+- `vercel.json` for build configuration
+- `api/index.mjs` as the serverless function entry point
+- Vercel automatically routes `/api/*` requests to the Express server
+- All other routes serve the React client
+
+### Manual Deployment
+
 1. Build the frontend: `npm run build`
 2. Set production environment variables
 3. Deploy the server to your hosting platform

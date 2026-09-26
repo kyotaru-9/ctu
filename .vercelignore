@@ -1,0 +1,10 @@
+node_modules/
+.env
+*.log
+.DS_Store
+.git/
+README.md
+test_login.json
+opencode.json
+CTU-Clean-Track-Update-Agent-Spec.md
+mcp-playwright/
