@@ -93,6 +93,11 @@ export default function StudentSubmit() {
       return
     }
 
+    if (!room || !room.id) {
+      setError('Room information is missing. Please scan a QR code first.')
+      return
+    }
+
     setUploading(true)
     setUploadProgress(0)
     setError('')
@@ -104,7 +109,7 @@ export default function StudentSubmit() {
       formData.append('submission_type', submissionType)
       formData.append('condition', condition)
       formData.append('notes', notes)
-      if (schedule) formData.append('schedule_id', schedule.id)
+      if (schedule && schedule.id) formData.append('schedule_id', schedule.id)
 
       const onProgress = (event) => {
         if (event.total) {
@@ -122,6 +127,7 @@ export default function StudentSubmit() {
         setError(response.message || 'Submission failed. Please try again.')
       }
     } catch (err) {
+      console.error('Submission error:', err)
       setError(err.response?.data?.message || 'Failed to submit. Please try again.')
     } finally {
       setUploading(false)
@@ -146,12 +152,12 @@ export default function StudentSubmit() {
               <DetailList
                 columns={1}
                 items={[
-                  { label: 'Room', value: `${room.room_name} (${room.room_code})` },
-                  schedule && { label: 'Subject', value: schedule.subject_name },
-                  schedule && { label: 'Section', value: sectionLabel(schedule.sections) },
+                  { label: 'Room', value: room ? `${room.room_name || 'Unknown'} (${room.room_code || 'Unknown'})` : 'Unknown' },
                   { label: 'Type', value: isBefore ? 'Before class' : 'After class' },
                   { label: 'Condition', value: <StatusBadge map={CONDITION} value={condition} /> },
-                ]}
+                  schedule && schedule.subject_name && { label: 'Subject', value: schedule.subject_name },
+                  schedule && schedule.sections && { label: 'Section', value: sectionLabel(schedule.sections) },
+                ].filter(item => item !== false && item !== null && item !== undefined)}
               />
             </div>
 
@@ -191,18 +197,18 @@ export default function StudentSubmit() {
             <DetailList
               columns={1}
               items={[
-                { label: 'Room', value: room.room_name },
-                { label: 'Code', value: room.room_code },
-                { label: 'Building', value: room.building },
-                { label: 'Floor', value: room.floor },
-                schedule && { label: 'Subject', value: schedule.subject_name },
-                schedule && { label: 'Instructor', value: schedule.instructor_name },
-                schedule && {
+                { label: 'Room', value: room?.room_name || 'Unknown' },
+                { label: 'Code', value: room?.room_code || 'Unknown' },
+                { label: 'Building', value: room?.building || 'Unknown' },
+                { label: 'Floor', value: room?.floor || 'Unknown' },
+                schedule && schedule.subject_name && { label: 'Subject', value: schedule.subject_name },
+                schedule && schedule.instructor_name && { label: 'Instructor', value: schedule.instructor_name },
+                schedule && schedule.start_time && schedule.end_time && {
                   label: 'Time',
                   value: `${formatTime(schedule.start_time)} – ${formatTime(schedule.end_time)}`,
                 },
-                schedule && { label: 'Section', value: sectionLabel(schedule.sections) },
-              ]}
+                schedule && schedule.sections && { label: 'Section', value: sectionLabel(schedule.sections) },
+              ].filter(item => item !== false && item !== null && item !== undefined)}
             />
           </CardBody>
         </Card>

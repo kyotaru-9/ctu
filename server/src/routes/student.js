@@ -120,7 +120,6 @@ router.get('/dashboard', async (req, res) => {
 // Student Schedule
 router.get('/schedule', async (req, res) => {
   try {
-    console.log('Schedule query - section_id:', req.user.section_id)
     const { data: schedules, error } = await supabaseAdmin
       .from('schedules')
       .select('id, section_id, room_id, subject_name, instructor_name, day_of_week, start_time, end_time, is_active, created_at, updated_at')
@@ -129,7 +128,6 @@ router.get('/schedule', async (req, res) => {
       .order('day_of_week')
       .order('start_time')
     
-    console.log('Schedule query result:', { error, data: schedules })
     if (error) throw error
 
     // Fetch related data separately
@@ -344,14 +342,12 @@ router.get('/submissions', async (req, res) => {
 // Student Reports
 router.get('/reports', async (req, res) => {
   try {
-    console.log('Reports query - section_id:', req.user.section_id)
     const { data: reports, error } = await supabaseAdmin
       .from('reports')
       .select('id, section_id, room_id, occupation_id, reported_by, reason_id, other_reason, description, image_url, status, admin_note, reported_at, reviewed_at, reviewed_by, created_at, updated_at')
       .eq('section_id', req.user.section_id)
       .order('reported_at', { ascending: false })
     
-    console.log('Reports query result:', { error, data: reports })
     if (error) throw error
 
     // Fetch related data separately
@@ -428,7 +424,6 @@ router.get('/report-reasons', async (req, res) => {
 router.get('/submissions/my', async (req, res) => {
   try {
     const sectionId = req.user?.section_id
-    console.log('Submissions query - section_id:', sectionId)
     if (!sectionId) {
       return res.status(400).json({ success: false, message: 'User section not found' })
     }
@@ -439,7 +434,6 @@ router.get('/submissions/my', async (req, res) => {
       .eq('section_id', sectionId)
       .order('submitted_at', { ascending: false })
     
-    console.log('Submissions query result:', { error, data: submissions })
     if (error) throw error
 
     // Fetch related data separately
