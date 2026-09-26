@@ -8,10 +8,12 @@ import {
   Button,
   Card,
   CardBody,
+  CardHeader,
   CardTitle,
   CONDITION,
   DetailList,
   EmptyState,
+  LoadingBlock,
   Modal,
   OCCUPATION_STATUS,
   PageHeader,
@@ -26,10 +28,10 @@ import {
   TableCard,
 } from '../../components/ui'
 
-function SubmissionFlag({ submitted, label }) {
-  return submitted ? (
+function SubmissionFlag({ submission }) {
+  return submission ? (
     <Badge tone="ok" icon="bi bi-check-lg">
-      {label}
+      Done
     </Badge>
   ) : (
     <Badge tone="bad" icon="bi bi-x-lg">
@@ -38,26 +40,46 @@ function SubmissionFlag({ submitted, label }) {
   )
 }
 
-function SubmissionPanel({ title, submitted, submittedAt, condition }) {
+function SubmissionPanel({ title, submission }) {
   return (
     <Card className="h-full">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
       <CardBody>
-        <CardTitle className="mb-4">{title}</CardTitle>
+        {submission ? (
+          <div className="flex flex-col gap-4">
+            {submission.image_url ? (
+              <img
+                src={submission.image_url}
+                alt={`${title} photo`}
+                className="max-h-48 w-full rounded-md border border-line object-contain"
+              />
+            ) : (
+              <div className="grid h-40 place-items-center rounded-md bg-surface-sunken text-sm text-ink-muted">
+                No photo
+              </div>
+            )}
 
-        {submitted ? (
-          <DetailList
-            columns={1}
-            items={[
-              { label: 'Status', value: <Badge tone="ok">Submitted</Badge> },
-              { label: 'Submitted at', value: formatDateTime(submittedAt) },
-              {
-                label: 'Condition',
-                value: <StatusBadge map={CONDITION} value={condition} />,
-              },
-            ]}
-          />
+            <DetailList
+              columns={1}
+              items={[
+                { label: 'Status', value: <Badge tone="ok">Submitted</Badge> },
+                { label: 'Submitted at', value: formatDateTime(submission.submitted_at) },
+                {
+                  label: 'Condition',
+                  value: <StatusBadge map={CONDITION} value={submission.condition} />,
+                },
+                submission.submitted_time && {
+                  label: 'Recorded time',
+                  value: formatTime(String(submission.submitted_time).slice(0, 5)),
+                },
+                submission.notes && { label: 'Notes', value: submission.notes },
+              ]}
+            />
+          </div>
         ) : (
-          <p className="text-sm text-ink-muted">Not submitted.</p>
+          <p className="py-4 text-center text-sm text-ink-muted">Not submitted</p>
         )}
       </CardBody>
     </Card>
@@ -68,6 +90,9 @@ export default function AdminOccupations() {
   const [occupations, setOccupations] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selected, setSelected] = useState(null)
+  const [detail, setDetail] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -90,6 +115,34 @@ export default function AdminOccupations() {
   useEffect(() => {
     fetchOccupations()
   }, [fetchOccupations])
+
+  // The list row only carries the submission summary the Before/After columns
+  // need, so the modal opens on it and then fills in the full records.
+  const openDetails = useCallback(async (occupation) => {
+    setSelected(occupation)
+    setDetail(occupation)
+    setDetailError('')
+    setDetailLoading(true)
+    try {
+      const response = await occupationService.getById(occupation.id)
+      if (response.success && response.data) {
+        setDetail(response.data)
+      } else {
+        setDetailError(response.message || 'Failed to load occupation details')
+      }
+    } catch (err) {
+      setDetailError(err.response?.data?.message || 'Failed to load occupation details')
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
+
+  const closeDetails = useCallback(() => {
+    setSelected(null)
+    setDetail(null)
+    setDetailError('')
+    setDetailLoading(false)
+  }, [])
 
   const filteredOccupations = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
@@ -167,10 +220,10 @@ export default function AdminOccupations() {
                       : '—'}
                   </TD>
                   <TD>
-                    <SubmissionFlag submitted={occupation.before_submitted} label="Done" />
+                    <SubmissionFlag submission={occupation.before} />
                   </TD>
                   <TD>
-                    <SubmissionFlag submitted={occupation.after_submitted} label="Done" />
+                    <SubmissionFlag submission={occupation.after} />
                   </TD>
                   <TD>
                     <StatusBadge map={OCCUPATION_STATUS} value={occupation.status} />
@@ -181,7 +234,7 @@ export default function AdminOccupations() {
                         text="View"
                         label="View occupation details"
                         tone="accent"
-                        onClick={() => setSelected(occupation)}
+                        onClick={() => openDetails(occupation)}
                       />
                     </div>
                   </TD>
@@ -194,43 +247,41 @@ export default function AdminOccupations() {
 
       <Modal
         open={Boolean(selected)}
-        onClose={() => setSelected(null)}
+        onClose={closeDetails}
         title="Occupation details"
         size="lg"
         footer={
-          <Button variant="secondary" onClick={() => setSelected(null)}>
+          <Button variant="secondary" onClick={closeDetails}>
             Close
           </Button>
         }
       >
-        {selected && (
+        {selected && detail && (
           <div className="flex flex-col gap-6">
+            {detailError && (
+              <Alert tone="bad" onDismiss={() => setDetailError('')}>
+                {detailError}
+              </Alert>
+            )}
+
             <DetailList
               items={[
-                { label: 'Date', value: formatDate(selected.occupation_date) },
-                { label: 'Status', value: <StatusBadge map={OCCUPATION_STATUS} value={selected.status} /> },
-                { label: 'Section', value: sectionLabel(selected.section) },
-                { label: 'Room', value: selected.room?.room_code || '—' },
-                { label: 'Subject', value: selected.schedule?.subject_name || '—' },
-                { label: 'Instructor', value: selected.schedule?.instructor_name || '—' },
-                { label: 'Started', value: formatDateTime(selected.started_at) },
-                { label: 'Ended', value: formatDateTime(selected.ended_at) },
+                { label: 'Date', value: formatDate(detail.occupation_date) },
+                { label: 'Status', value: <StatusBadge map={OCCUPATION_STATUS} value={detail.status} /> },
+                { label: 'Section', value: sectionLabel(detail.section) },
+                { label: 'Room', value: detail.room?.room_code || '—' },
+                { label: 'Subject', value: detail.schedule?.subject_name || '—' },
+                { label: 'Instructor', value: detail.schedule?.instructor_name || '—' },
+                { label: 'Started', value: formatDateTime(detail.started_at) },
+                { label: 'Ended', value: formatDateTime(detail.ended_at) },
               ]}
             />
 
+            {detailLoading && <LoadingBlock label="Loading submissions…" compact />}
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <SubmissionPanel
-                title="Before class"
-                submitted={selected.before_submitted}
-                submittedAt={selected.before_submitted_at}
-                condition={selected.before_condition}
-              />
-              <SubmissionPanel
-                title="After class"
-                submitted={selected.after_submitted}
-                submittedAt={selected.after_submitted_at}
-                condition={selected.after_condition}
-              />
+              <SubmissionPanel title="Before class" submission={detail.before} />
+              <SubmissionPanel title="After class" submission={detail.after} />
             </div>
           </div>
         )}

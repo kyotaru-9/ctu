@@ -17,6 +17,44 @@ const upload = multer({
   }
 })
 
+// Submission history reads from room_submissions but describes an occupation,
+// so the occupation's room and schedule are aliased to singular keys and the
+// date is read off the occupation — `occupation_date` is not a room_submissions
+// column. The submission's own room embed is left out on purpose: aliasing it
+// to `room` as well would collide with the occupation's and PostgREST would
+// drop one of them.
+const HISTORY_SELECT = '*, occupations(*, room:rooms(*), schedule:schedules(subject_name))'
+
+/**
+ * Collapses a flat list of room_submissions into one record per occupation with
+ * the two submissions split out as `before`/`after`, which is the shape the
+ * history page renders.
+ */
+function groupByOccupation(submissions) {
+  const grouped = {}
+
+  ;(submissions || []).forEach(sub => {
+    const key = sub.occupation_id
+    if (!grouped[key]) {
+      grouped[key] = {
+        id: sub.occupation_id,
+        date: sub.occupations?.occupation_date,
+        room: sub.occupations?.room,
+        subject: sub.occupations?.schedule?.subject_name,
+        before: null,
+        after: null
+      }
+    }
+    if (sub.submission_type === 'before') {
+      grouped[key].before = sub
+    } else if (sub.submission_type === 'after') {
+      grouped[key].after = sub
+    }
+  })
+
+  return Object.values(grouped)
+}
+
 // Student Dashboard
 router.get('/dashboard', async (req, res) => {
   try {
@@ -220,31 +258,10 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
 
 router.get('/submissions', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('room_submissions').select('*, occupations(*, rooms(*), schedules(section_id, subject_name)), rooms(*)').eq('section_id', req.user.section_id).order('submitted_at', { ascending: false })
+    const { data, error } = await supabaseAdmin.from('room_submissions').select(HISTORY_SELECT).eq('section_id', req.user.section_id).order('submitted_at', { ascending: false })
     if (error) throw error
-    
-    // Group by occupation
-    const grouped = {}
-    ;(data || []).forEach(sub => {
-      const key = sub.occupation_id
-      if (!grouped[key]) {
-        grouped[key] = {
-          id: sub.occupation_id,
-          date: sub.occupation_date,
-          room: sub.rooms,
-          subject: sub.occupations?.schedules?.subject_name,
-          before: null,
-          after: null
-        }
-      }
-      if (sub.submission_type === 'before') {
-        grouped[key].before = sub
-      } else if (sub.submission_type === 'after') {
-        grouped[key].after = sub
-      }
-    })
-    
-    res.json({ success: true, data: Object.values(grouped) })
+
+    res.json({ success: true, data: groupByOccupation(data) })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to load submissions' })
   }
@@ -314,30 +331,10 @@ router.get('/submissions/my', async (req, res) => {
     if (!sectionId) {
       return res.status(400).json({ success: false, message: 'User section not found' })
     }
-    const { data, error } = await supabaseAdmin.from('room_submissions').select('*, occupations(*, rooms(*), schedules(section_id, subject_name)), rooms(*)').eq('section_id', sectionId).order('submitted_at', { ascending: false })
+    const { data, error } = await supabaseAdmin.from('room_submissions').select(HISTORY_SELECT).eq('section_id', sectionId).order('submitted_at', { ascending: false })
     if (error) throw error
-    
-    const grouped = {}
-    ;(data || []).forEach(sub => {
-      const key = sub.occupation_id
-      if (!grouped[key]) {
-        grouped[key] = {
-          id: sub.occupation_id,
-          date: sub.occupation_date,
-          room: sub.rooms,
-          subject: sub.occupations?.schedules?.subject_name,
-          before: null,
-          after: null
-        }
-      }
-      if (sub.submission_type === 'before') {
-        grouped[key].before = sub
-      } else if (sub.submission_type === 'after') {
-        grouped[key].after = sub
-      }
-    })
-    
-    res.json({ success: true, data: Object.values(grouped) })
+
+    res.json({ success: true, data: groupByOccupation(data) })
   } catch (err) {
     console.error('[Server] Error loading submissions:', err)
     res.status(500).json({ success: false, message: 'Failed to load submissions' })

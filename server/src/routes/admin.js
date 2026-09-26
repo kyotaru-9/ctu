@@ -458,9 +458,13 @@ router.post('/rooms/:id/regenerate-qr', async (req, res) => {
 })
 
 // Schedules
+// Aliased so the embed lands on `section`/`room`, which is what the admin
+// schedule table, edit form and delete prompt all read.
+const SCHEDULE_SELECT = '*, section:sections(*), room:rooms(*)'
+
 router.get('/schedules', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('schedules').select('*, sections(id, program, year_level, section_name), rooms(*)').order('day_of_week').order('start_time')
+    const { data, error } = await supabaseAdmin.from('schedules').select(SCHEDULE_SELECT).order('day_of_week').order('start_time')
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {
@@ -470,7 +474,7 @@ router.get('/schedules', async (req, res) => {
 
 router.post('/schedules', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('schedules').insert(req.body).select().single()
+    const { data, error } = await supabaseAdmin.from('schedules').insert(req.body).select(SCHEDULE_SELECT).single()
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {
@@ -480,7 +484,7 @@ router.post('/schedules', async (req, res) => {
 
 router.get('/schedules/:id', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('schedules').select('*, sections(id, program, year_level, section_name), rooms(*)').eq('id', req.params.id).single()
+    const { data, error } = await supabaseAdmin.from('schedules').select(SCHEDULE_SELECT).eq('id', req.params.id).single()
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {
@@ -490,7 +494,7 @@ router.get('/schedules/:id', async (req, res) => {
 
 router.put('/schedules/:id', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('schedules').update(req.body).eq('id', req.params.id).select().single()
+    const { data, error } = await supabaseAdmin.from('schedules').update(req.body).eq('id', req.params.id).select(SCHEDULE_SELECT).single()
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {
@@ -509,11 +513,38 @@ router.delete('/schedules/:id', async (req, res) => {
 })
 
 // Occupations
+// PostgREST keys an embed by the name written in the select, so the aliases
+// below are what put `section`/`room`/`schedule` on the row instead of the
+// plural table names.
+const OCCUPATION_EMBEDS = 'section:sections(id, program, year_level, section_name), room:rooms(*), schedule:schedules(id, section_id, subject_name, instructor_name)'
+
+// The list only needs enough of each submission to draw its Before/After
+// column; the detail view fetches the full rows (image_url, notes).
+const OCCUPATION_LIST_SELECT = `*, ${OCCUPATION_EMBEDS}, room_submissions(id, submission_type, submitted_at, condition)`
+const OCCUPATION_DETAIL_SELECT = `*, ${OCCUPATION_EMBEDS}, room_submissions(*)`
+
+/**
+ * Flattens an occupation row for the admin UI: the aliased embeds are already
+ * singular, so the only reshaping left is splitting the two room_submissions
+ * rows into `before` and `after` by their submission_type.
+ */
+function shapeOccupation(occupation) {
+  const { room_submissions: submissions, ...rest } = occupation
+  const shaped = { ...rest, before: null, after: null }
+
+  ;(submissions || []).forEach((submission) => {
+    if (submission.submission_type === 'before') shaped.before = submission
+    if (submission.submission_type === 'after') shaped.after = submission
+  })
+
+  return shaped
+}
+
 router.get('/occupations', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('occupations').select('*, sections(id, program, year_level, section_name), rooms(*), schedules(section_id, subject_name)').order('occupation_date', { ascending: false })
+    const { data, error } = await supabaseAdmin.from('occupations').select(OCCUPATION_LIST_SELECT).order('occupation_date', { ascending: false })
     if (error) throw error
-    res.json({ success: true, data })
+    res.json({ success: true, data: (data || []).map(shapeOccupation) })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to load occupations' })
   }
@@ -521,9 +552,9 @@ router.get('/occupations', async (req, res) => {
 
 router.get('/occupations/:id', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('occupations').select('*, sections(id, program, year_level, section_name), rooms(*), schedules(section_id, subject_name), room_submissions(*)').eq('id', req.params.id).single()
+    const { data, error } = await supabaseAdmin.from('occupations').select(OCCUPATION_DETAIL_SELECT).eq('id', req.params.id).single()
     if (error) throw error
-    res.json({ success: true, data })
+    res.json({ success: true, data: shapeOccupation(data) })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to load occupation' })
   }

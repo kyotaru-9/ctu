@@ -2,16 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { roomService } from '../../services/roomService'
 import { scheduleService } from '../../services/scheduleService'
 import { sectionService } from '../../services/sectionService'
-import { biPencil, biPlus, biToggleOff, biToggleOn, biTrash } from '../../utils/icons'
-import { DAY_NAMES_LIST, dayName, formatTime, sectionLabel } from '../../lib/format'
+import { biEye, biPencil, biPlus, biToggleOff, biToggleOn, biTrash } from '../../utils/icons'
+import { DAY_NAMES_LIST, dayName, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
 import {
   ACTIVE_STATUS,
   ActionButton,
   Alert,
+  Badge,
   Button,
   ConfirmDialog,
+  DetailList,
   EmptyState,
   Input,
+  LoadingBlock,
   Modal,
   PageHeader,
   RowActions,
@@ -45,6 +48,11 @@ export default function AdminSchedules() {
   const [showForm, setShowForm] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [selected, setSelected] = useState(null)
+  const [detail, setDetail] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
+  const [editLoading, setEditLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -94,16 +102,8 @@ export default function AdminSchedules() {
     setFormData((previous) => ({ ...previous, [field]: value }))
   }
 
-  function handleOpenAdd() {
-    setEditingSchedule(null)
-    setFormData(BLANK_FORM)
-    setError('')
-    setShowForm(true)
-  }
-
-  function handleOpenEdit(schedule) {
-    setEditingSchedule(schedule)
-    setFormData({
+  function toFormData(schedule) {
+    return {
       section_id: schedule.section_id || '',
       room_id: schedule.room_id || '',
       subject_name: schedule.subject_name || '',
@@ -113,13 +113,74 @@ export default function AdminSchedules() {
         : '',
       start_time: schedule.start_time?.slice(0, 5) || '',
       end_time: schedule.end_time?.slice(0, 5) || '',
-    })
+    }
+  }
+
+  // The list row is enough to render the table, but the detail view and the
+  // edit form both read fields only the single-row select returns, so they open
+  // on the list row and then fill in from getById.
+  const openDetails = useCallback(async (schedule) => {
+    setSelected(schedule)
+    setDetail(schedule)
+    setDetailError('')
+    setDetailLoading(true)
+    try {
+      const response = await scheduleService.getById(schedule.id)
+      if (response.success && response.data) {
+        setDetail(response.data)
+      } else {
+        setDetailError(response.message || 'Failed to load schedule details')
+      }
+    } catch (err) {
+      setDetailError(err.response?.data?.message || 'Failed to load schedule details')
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
+
+  const closeDetails = useCallback(() => {
+    setSelected(null)
+    setDetail(null)
+    setDetailError('')
+    setDetailLoading(false)
+  }, [])
+
+  function handleOpenAdd() {
+    setEditingSchedule(null)
+    setFormData(BLANK_FORM)
     setError('')
+    setEditLoading(false)
     setShowForm(true)
+  }
+
+  async function handleOpenEdit(schedule) {
+    setEditingSchedule(schedule)
+    setFormData(BLANK_FORM)
+    setError('')
+    setEditLoading(true)
+    setShowForm(true)
+    try {
+      const response = await scheduleService.getById(schedule.id)
+      if (response.success && response.data) {
+        setFormData(toFormData(response.data))
+      } else {
+        setError(response.message || 'Failed to load schedule')
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load schedule')
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
+  function handleCloseForm() {
+    setShowForm(false)
+    setEditLoading(false)
   }
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (editLoading) return
     setSubmitting(true)
     setError('')
 
@@ -138,7 +199,7 @@ export default function AdminSchedules() {
         return
       }
 
-      setShowForm(false)
+      handleCloseForm()
       await fetchSchedules()
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save schedule')
@@ -239,6 +300,12 @@ export default function AdminSchedules() {
                   <TD align="right">
                     <RowActions label={`Actions for ${schedule.subject_name}`}>
                       <ActionButton
+                        icon={biEye}
+                        label="View schedule details"
+                        tone="accent"
+                        onClick={() => openDetails(schedule)}
+                      />
+                      <ActionButton
                         icon={biPencil}
                         label="Edit schedule"
                         tone="accent"
@@ -266,16 +333,90 @@ export default function AdminSchedules() {
       </TableCard>
 
       <Modal
+        open={Boolean(selected)}
+        onClose={closeDetails}
+        title="Schedule details"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeDetails}>
+              Close
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const target = detail || selected
+                closeDetails()
+                handleOpenEdit(target)
+              }}
+            >
+              Edit schedule
+            </Button>
+          </>
+        }
+      >
+        {selected && detail && (
+          <div className="flex flex-col gap-6">
+            {detailError && (
+              <Alert tone="bad" onDismiss={() => setDetailError('')}>
+                {detailError}
+              </Alert>
+            )}
+
+            <DetailList
+              items={[
+                { label: 'Section', value: sectionLabel(detail.section) },
+                detail.section?.shift && {
+                  label: 'Shift',
+                  value: (
+                    <Badge tone={detail.section.shift === 'day' ? 'info' : 'warn'}>
+                      {detail.section.shift === 'day' ? 'Day' : 'Night'}
+                    </Badge>
+                  ),
+                },
+                detail.section?.mayor_name && { label: 'Mayor', value: detail.section.mayor_name },
+                { label: 'Room', value: detail.room?.room_code || '—' },
+                detail.room?.room_name && { label: 'Room name', value: detail.room.room_name },
+                detail.room?.building && { label: 'Building', value: detail.room.building },
+                detail.room?.floor && { label: 'Floor', value: detail.room.floor },
+                { label: 'Subject', value: detail.subject_name },
+                { label: 'Instructor', value: detail.instructor_name },
+                { label: 'Day', value: dayName(detail.day_of_week) },
+                {
+                  label: 'Time',
+                  value: `${formatTime(detail.start_time)} – ${formatTime(detail.end_time)}`,
+                },
+                {
+                  label: 'Status',
+                  value: <StatusBadge map={ACTIVE_STATUS} value={String(Boolean(detail.is_active))} />,
+                },
+                { label: 'Created', value: formatDateTime(detail.created_at) },
+                { label: 'Last updated', value: formatDateTime(detail.updated_at) },
+              ]}
+            />
+
+            {detailLoading && <LoadingBlock label="Loading schedule…" compact />}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         open={showForm}
-        onClose={() => setShowForm(false)}
+        onClose={handleCloseForm}
         title={editingSchedule ? 'Edit schedule' : 'Add schedule'}
         size="lg"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setShowForm(false)} disabled={submitting}>
+            <Button variant="secondary" onClick={handleCloseForm} disabled={submitting}>
               Cancel
             </Button>
-            <Button variant="primary" type="submit" form="schedule-form" loading={submitting}>
+            <Button
+              variant="primary"
+              type="submit"
+              form="schedule-form"
+              loading={submitting}
+              disabled={editLoading}
+            >
               {editingSchedule ? 'Update schedule' : 'Create schedule'}
             </Button>
           </>
@@ -284,72 +425,78 @@ export default function AdminSchedules() {
         <form id="schedule-form" onSubmit={handleSubmit} noValidate className="form-stack">
           {error && <Alert tone="bad">{error}</Alert>}
 
-          <div className="form-grid">
-            <Select
-              label="Section"
-              required
-              value={formData.section_id}
-              onChange={(event) => update('section_id', event.target.value)}
-              placeholder="Select a section"
-            >
-              {sections.map((section) => (
-                <option key={section.id} value={section.id}>
-                  {sectionLabel(section)} ({section.shift})
-                </option>
-              ))}
-            </Select>
+          {editLoading ? (
+            <LoadingBlock label="Loading schedule…" />
+          ) : (
+            <>
+              <div className="form-grid">
+                <Select
+                  label="Section"
+                  required
+                  value={formData.section_id}
+                  onChange={(event) => update('section_id', event.target.value)}
+                  placeholder="Select a section"
+                >
+                  {sections.map((section) => (
+                    <option key={section.id} value={section.id}>
+                      {sectionLabel(section)} ({section.shift})
+                    </option>
+                  ))}
+                </Select>
 
-            <Select
-              label="Room"
-              required
-              value={formData.room_id}
-              onChange={(event) => update('room_id', event.target.value)}
-              placeholder="Select a room"
-            >
-              {rooms.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.room_code} — {room.room_name}
-                </option>
-              ))}
-            </Select>
+                <Select
+                  label="Room"
+                  required
+                  value={formData.room_id}
+                  onChange={(event) => update('room_id', event.target.value)}
+                  placeholder="Select a room"
+                >
+                  {rooms.map((room) => (
+                    <option key={room.id} value={room.id}>
+                      {room.room_code} — {room.room_name}
+                    </option>
+                  ))}
+                </Select>
 
-            <Input
-              label="Subject"
-              required
-              value={formData.subject_name}
-              onChange={(event) => update('subject_name', event.target.value)}
-            />
-            <Input
-              label="Instructor"
-              value={formData.instructor_name}
-              onChange={(event) => update('instructor_name', event.target.value)}
-            />
-          </div>
+                <Input
+                  label="Subject"
+                  required
+                  value={formData.subject_name}
+                  onChange={(event) => update('subject_name', event.target.value)}
+                />
+                <Input
+                  label="Instructor"
+                  value={formData.instructor_name}
+                  onChange={(event) => update('instructor_name', event.target.value)}
+                />
+              </div>
 
-          <div className="form-grid-3">
-            <Select
-              label="Day"
-              required
-              value={formData.day_of_week}
-              onChange={(event) => update('day_of_week', event.target.value)}
-              placeholder="Select a day"
-              options={DAY_NAMES_LIST.map((day, index) => ({ value: String(index), label: day }))}
-            />
-            <Input
-              label="Start time"
-              type="time"
-              required
-              value={formData.start_time}
-              onChange={(event) => update('start_time', event.target.value)}
-            />
-            <Input
-              label="End time"
-              type="time"
-              required
-              value={formData.end_time}
-              onChange={(event) => update('end_time', event.target.value)}
-            />
-          </div>
+              <div className="form-grid-3">
+                <Select
+                  label="Day"
+                  required
+                  value={formData.day_of_week}
+                  onChange={(event) => update('day_of_week', event.target.value)}
+                  placeholder="Select a day"
+                  options={DAY_NAMES_LIST.map((day, index) => ({ value: String(index), label: day }))}
+                />
+                <Input
+                  label="Start time"
+                  type="time"
+                  required
+                  value={formData.start_time}
+                  onChange={(event) => update('start_time', event.target.value)}
+                />
+                <Input
+                  label="End time"
+                  type="time"
+                  required
+                  value={formData.end_time}
+                  onChange={(event) => update('end_time', event.target.value)}
+                />
+              </div>
+            </>
+          )}
         </form>
       </Modal>
 
