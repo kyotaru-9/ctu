@@ -61,7 +61,7 @@ router.post('/sections', async (req, res) => {
     const email = `${sectionCode}@ctu.edu.ph`
     const password = Math.random().toString(36).slice(-8) + 'A1!'
 
-    // Create Supabase Auth user
+    // Create Supabase Auth user for regular student
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -75,14 +75,13 @@ router.post('/sections', async (req, res) => {
 
     if (authError) {
       console.error('[Server] Auth user creation failed:', authError)
-      // Rollback section creation
       await supabaseAdmin.from('sections').delete().eq('id', section.id)
       throw authError
     }
 
     console.log('[Server] Auth user created:', authUser.user.id)
 
-    // Create profile linking user to section
+    // Create profile for regular student
     const { error: profileError } = await supabaseAdmin.from('profiles').insert({
       auth_user_id: authUser.user.id,
       section_id: section.id,
@@ -93,14 +92,49 @@ router.post('/sections', async (req, res) => {
 
     if (profileError) {
       console.error('[Server] Profile creation failed:', profileError)
-      // Rollback auth user
       await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
-      // Rollback section
       await supabaseAdmin.from('sections').delete().eq('id', section.id)
       throw profileError
     }
 
     console.log('[Server] Profile created for user:', authUser.user.id)
+
+    // Create Supabase Auth user for student_special
+    const specialEmail = `special-${sectionCode}@ctu.edu.ph`
+    const specialPassword = Math.random().toString(36).slice(-8) + 'A1!'
+
+    const { data: specialAuthUser, error: specialAuthError } = await supabaseAdmin.auth.admin.createUser({
+      email: specialEmail,
+      password: specialPassword,
+      email_confirm: true,
+      user_metadata: {
+        section_id: section.id,
+        section_name: `${section.program} ${section.year_level}${section.section_name} (Special)`,
+        role: 'student_special'
+      }
+    })
+
+    if (specialAuthError) {
+      console.error('[Server] Special auth user creation failed:', specialAuthError)
+      // Don't rollback everything, just log error
+    } else {
+      console.log('[Server] Special auth user created:', specialAuthUser.user.id)
+
+      // Create profile for student_special
+      const { error: specialProfileError } = await supabaseAdmin.from('profiles').insert({
+        auth_user_id: specialAuthUser.user.id,
+        section_id: section.id,
+        role: 'student_special',
+        full_name: `${section.program} ${section.year_level}${section.section_name} Special Student`,
+        is_active: true
+      })
+
+      if (specialProfileError) {
+        console.error('[Server] Special profile creation failed:', specialProfileError)
+      } else {
+        console.log('[Server] Special profile created for user:', specialAuthUser.user.id)
+      }
+    }
 
     res.json({
       success: true,
@@ -108,6 +142,11 @@ router.post('/sections', async (req, res) => {
       credentials: {
         email,
         password,
+        section_id: section.id
+      },
+      specialCredentials: specialAuthError ? null : {
+        email: specialEmail,
+        password: specialPassword,
         section_id: section.id
       }
     })
@@ -134,6 +173,110 @@ router.put('/sections/:id', async (req, res) => {
     res.json({ success: true, data })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to update section' })
+  }
+})
+
+// Update student roles for a section
+router.put('/sections/:id/roles', async (req, res) => {
+  try {
+    const { sectionId } = req.params
+    const { studentEnabled, specialEnabled } = req.body
+
+    // Update regular student profile
+    if (studentEnabled !== undefined) {
+      const { data: studentProfiles } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .eq('section_id', sectionId)
+        .eq('role', 'student')
+
+      if (studentProfiles && studentProfiles.length > 0) {
+        for (const profile of studentProfiles) {
+          await supabaseAdmin
+            .from('profiles')
+            .update({ is_active: studentEnabled })
+            .eq('id', profile.id)
+          
+          // Also update auth user
+          await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
+            user_metadata: { ...profile, is_active: studentEnabled }
+          })
+        }
+      } else if (studentEnabled) {
+        // Create new student if doesn't exist
+        const { data: section } = await supabaseAdmin.from('sections').select('*').eq('id', sectionId).single()
+        if (section) {
+          const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
+          const email = `${sectionCode}@ctu.edu.ph`
+          const password = Math.random().toString(36).slice(-8) + 'A1!'
+
+          const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
+            email, password, email_confirm: true,
+            user_metadata: { section_id: section.id, section_name: `${section.program} ${section.year_level}${section.section_name}`, role: 'student' }
+          })
+          
+          if (authUser.user) {
+            await supabaseAdmin.from('profiles').insert({
+              auth_user_id: authUser.user.id,
+              section_id: section.id,
+              role: 'student',
+              full_name: `${section.program} ${section.year_level}${section.section_name} Student`,
+              is_active: true
+            })
+          }
+        }
+      }
+    }
+
+    // Update special student profile
+    if (specialEnabled !== undefined) {
+      const { data: specialProfiles } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .eq('section_id', sectionId)
+        .eq('role', 'student_special')
+
+      if (specialProfiles && specialProfiles.length > 0) {
+        for (const profile of specialProfiles) {
+          await supabaseAdmin
+            .from('profiles')
+            .update({ is_active: specialEnabled })
+            .eq('id', profile.id)
+          
+          await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
+            user_metadata: { ...profile, is_active: specialEnabled }
+          })
+        }
+      } else if (specialEnabled) {
+        // Create new special student if doesn't exist
+        const { data: section } = await supabaseAdmin.from('sections').select('*').eq('id', sectionId).single()
+        if (section) {
+          const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
+          const specialEmail = `special-${sectionCode}@ctu.edu.ph`
+          const specialPassword = Math.random().toString(36).slice(-8) + 'A1!'
+
+          const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
+            email: specialEmail, password: specialPassword, email_confirm: true,
+            user_metadata: { section_id: section.id, section_name: `${section.program} ${section.year_level}${section.section_name} (Special)`, role: 'student_special' }
+          })
+          
+          if (authUser.user) {
+            await supabaseAdmin.from('profiles').insert({
+              auth_user_id: authUser.user.id,
+              section_id: section.id,
+              role: 'student_special',
+              full_name: `${section.program} ${section.year_level}${section.section_name} Special Student`,
+              is_active: true
+            })
+          }
+        }
+      }
+    }
+
+    res.json({ success: true, message: 'Roles updated' })
+  } catch (err) {
+    console.error('[Server] Error updating roles:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to update roles' })
   }
 })
 

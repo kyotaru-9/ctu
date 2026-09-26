@@ -112,7 +112,7 @@ router.post('/submissions/before', upload.single('image'), async (req, res) => {
       occupationQuery = occupationQuery.eq('schedule_id', schedule_id)
     }
     
-    let occupation = await occupationQuery.single()
+    let occupation = await occupationQuery.limit(1).single()
     
     if (!occupation.data) {
       const insertData = {
@@ -175,7 +175,7 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
       occupationQuery = occupationQuery.eq('schedule_id', schedule_id)
     }
     
-    let occupation = await occupationQuery.single()
+    let occupation = await occupationQuery.limit(1).single()
     
     if (!occupation.data) {
       const insertData = {
@@ -220,7 +220,7 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
 
 router.get('/submissions', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('room_submissions').select('*, occupations(*, rooms(*), schedules(section_id, subject_name)), rooms(*)').eq('room_submissions.section_id', req.user.section_id).order('submitted_at', { ascending: false })
+    const { data, error } = await supabaseAdmin.from('room_submissions').select('*, occupations(*, rooms(*), schedules(section_id, subject_name)), rooms(*)').eq('section_id', req.user.section_id).order('submitted_at', { ascending: false })
     if (error) throw error
     
     // Group by occupation
@@ -314,7 +314,7 @@ router.get('/submissions/my', async (req, res) => {
     if (!sectionId) {
       return res.status(400).json({ success: false, message: 'User section not found' })
     }
-    const { data, error } = await supabaseAdmin.from('room_submissions').select('*, occupations(*, rooms(*), schedules(section_id, subject_name)), rooms(*)').eq('room_submissions.section_id', sectionId).order('submitted_at', { ascending: false })
+    const { data, error } = await supabaseAdmin.from('room_submissions').select('*, occupations(*, rooms(*), schedules(section_id, subject_name)), rooms(*)').eq('section_id', sectionId).order('submitted_at', { ascending: false })
     if (error) throw error
     
     const grouped = {}

@@ -44,5 +44,12 @@ async getMySchedules() {
     const prefix = getRolePrefix()
     const response = await api.get(`${prefix}/schedule/room/${roomId}`)
     return response.data
+  },
+
+  async getSchedulesByRoomAndDate(roomId, date) {
+    const prefix = getRolePrefix()
+    const dateStr = new Date(date).toISOString().split('T')[0]
+    const response = await api.get(`${prefix}/schedule/room/${roomId}`, { params: { date: dateStr } })
+    return response.data
   }
 }

@@ -62,7 +62,8 @@ router.get('/schedule', async (req, res) => {
 router.get('/schedule/room/:roomId', async (req, res) => {
   try {
     const { roomId } = req.params
-    const dayOfWeek = new Date().getDay()
+    const { date } = req.query
+    const dayOfWeek = date ? new Date(date).getDay() : new Date().getDay()
     const { data, error } = await supabaseAdmin
       .from('schedules')
       .select('*, rooms(*), sections(*)')
@@ -104,7 +105,7 @@ router.post('/submissions/before', upload.single('image'), async (req, res) => {
       occupationQuery = occupationQuery.eq('schedule_id', schedule_id)
     }
     
-    let occupation = await occupationQuery.single()
+    let occupation = await occupationQuery.limit(1).single()
     
     if (!occupation.data) {
       const insertData = {
@@ -167,7 +168,7 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
       occupationQuery = occupationQuery.eq('schedule_id', schedule_id)
     }
     
-    let occupation = await occupationQuery.single()
+    let occupation = await occupationQuery.limit(1).single()
     
     if (!occupation.data) {
       const insertData = {
@@ -268,8 +269,9 @@ router.get('/report-reasons', async (req, res) => {
 
 // Alias for submissions/my -> submissions
 router.get('/submissions/my', async (req, res) => {
+  console.log('[Server] /submissions/my - user:', req.user ? { id: req.user.id, section_id: req.user.section_id, role: req.user.role } : 'no user');
   try {
-    const { data, error } = await supabaseAdmin.from('room_submissions').select('*, occupations(*, rooms(*), schedules(section_id, subject_name)), rooms(*)').eq('room_submissions.section_id', req.user.section_id).order('submitted_at', { ascending: false })
+    const { data, error } = await supabaseAdmin.from('room_submissions').select('*, occupations(*, rooms(*), schedules(section_id, subject_name)), rooms(*)').eq('section_id', req.user.section_id).order('submitted_at', { ascending: false })
     if (error) throw error
     
     const grouped = {}
@@ -294,6 +296,7 @@ router.get('/submissions/my', async (req, res) => {
     
     res.json({ success: true, data: Object.values(grouped) })
   } catch (err) {
+    console.error('[Server] /submissions/my error:', err);
     res.status(500).json({ success: false, message: 'Failed to load submissions' })
   }
 })

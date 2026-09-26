@@ -1,9 +1,10 @@
-import { Container, Card, CardBody, CardHeader, Button, Form, Alert, Spinner, ProgressBar, Row, Col, Badge } from 'react-bootstrap'
+import { Container, Card, CardBody, CardHeader, Button, Form, Alert, Spinner, ProgressBar, Row, Col, Badge, ListGroup, ListGroupItem } from 'react-bootstrap'
 import { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { biCamera, biArrowLeft, biCheckCircle, biXCircle, biCloudUpload, biArrowRight, biArrowLeft as biArrowLeftIcon } from '../../utils/icons'
+import { biCamera, biArrowLeft, biCheckCircle, biXCircle, biCloudUpload, biArrowRight, biArrowLeft as biArrowLeftIcon, biCalendar, biClock, biDoorOpen, biPerson } from '../../utils/icons'
 import { submissionService } from '../../services/submissionService'
 import { authService } from '../../services/authService'
+import { scheduleService } from '../../services/scheduleService'
 import { CameraCapture, PhotoPreview } from '../../components/camera/CameraCapture.jsx'
 
 // Steps: 1=type/condition, 2=camera, 3=preview, 4=success
@@ -19,6 +20,42 @@ export default function StudentSubmit() {
   const location = useLocation()
   const [room, setRoom] = useState(location.state?.room || null)
   const [schedule, setSchedule] = useState(location.state?.schedule || null)
+  const [schedules, setSchedules] = useState([])
+  const [loadingSchedules, setLoadingSchedules] = useState(false)
+  
+  // Early return if no room - prevents accessing room.id before redirect
+  if (!room) {
+    // Redirect to scan page
+    useEffect(() => {
+      navigate('/student/scan')
+    }, [navigate])
+    return null
+  }
+  
+  // Fetch schedules for this room if not already provided
+  useEffect(() => {
+    if (!schedule && room) {
+      loadSchedulesForRoom()
+    }
+  }, [room, schedule])
+  
+  const loadSchedulesForRoom = async () => {
+    setLoadingSchedules(true)
+    try {
+      const response = await scheduleService.getSchedulesByRoom(room.id)
+      if (response.success) {
+        setSchedules(response.data || [])
+      }
+    } catch (err) {
+      console.error('Failed to load schedules:', err)
+    } finally {
+      setLoadingSchedules(false)
+    }
+  }
+  
+  const handleScheduleSelect = (selectedSchedule) => {
+    setSchedule(selectedSchedule)
+  }
   
   // Form data
   const [submissionType, setSubmissionType] = useState('before')
@@ -38,17 +75,6 @@ export default function StudentSubmit() {
   // Computed
   const isBefore = submissionType === 'before'
   const isStudentRole = authService.getUserRole() === 'student'
-
-  useEffect(() => {
-    if (!room) {
-      navigate('/student/scan')
-    }
-  }, [room, navigate])
-
-  // Early return to prevent rendering without room
-  if (!room) {
-    return null
-  }
 
   // Set condition based on submission type and schedule
   useEffect(() => {
