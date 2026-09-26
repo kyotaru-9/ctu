@@ -6,6 +6,11 @@ const router = Router()
 
 router.use(requireAdmin)
 
+/** Shared password shape: eight random base-36 characters plus a fixed tail. */
+function generatePassword() {
+  return Math.random().toString(36).slice(-8) + 'A1!'
+}
+
 router.get('/dashboard', async (req, res) => {
   try {
     const [sectionsRes, roomsRes, occupationsRes, reportsRes] = await Promise.all([
@@ -59,7 +64,7 @@ router.post('/sections', async (req, res) => {
     // Generate email and password for student account
     const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
     const email = `${sectionCode}@ctu.edu.ph`
-    const password = Math.random().toString(36).slice(-8) + 'A1!'
+    const password = generatePassword()
 
     // Create Supabase Auth user for regular student
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -101,7 +106,7 @@ router.post('/sections', async (req, res) => {
 
     // Create Supabase Auth user for student_special
     const specialEmail = `special-${sectionCode}@ctu.edu.ph`
-    const specialPassword = Math.random().toString(36).slice(-8) + 'A1!'
+    const specialPassword = generatePassword()
 
     const { data: specialAuthUser, error: specialAuthError } = await supabaseAdmin.auth.admin.createUser({
       email: specialEmail,
@@ -208,7 +213,7 @@ router.put('/sections/:id/roles', async (req, res) => {
         if (section) {
           const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
           const email = `${sectionCode}@ctu.edu.ph`
-          const password = Math.random().toString(36).slice(-8) + 'A1!'
+          const password = generatePassword()
 
           const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
             email, password, email_confirm: true,
@@ -253,7 +258,7 @@ router.put('/sections/:id/roles', async (req, res) => {
         if (section) {
           const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
           const specialEmail = `special-${sectionCode}@ctu.edu.ph`
-          const specialPassword = Math.random().toString(36).slice(-8) + 'A1!'
+          const specialPassword = generatePassword()
 
           const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
             email: specialEmail, password: specialPassword, email_confirm: true,
@@ -277,6 +282,93 @@ router.put('/sections/:id/roles', async (req, res) => {
   } catch (err) {
     console.error('[Server] Error updating roles:', err)
     res.status(500).json({ success: false, message: err.message || 'Failed to update roles' })
+  }
+})
+
+/**
+ * Regenerates the password on every login account a section owns.
+ *
+ * Addresses are derived once when the section is created and are never changed,
+ * so each new password is handed back against the existing email. A section can
+ * own both a regular and a special-student login, so accounts are returned as a
+ * list and the admin is shown one block per role. Sections with no account yet
+ * get a 404 rather than an invented address — the admin creates those
+ * explicitly through the add-section or roles flow.
+ */
+router.post('/sections/:id/regenerate-credentials', async (req, res) => {
+  try {
+    const { id: sectionId } = req.params
+
+    const { data: profiles, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('auth_user_id, role')
+      .eq('section_id', sectionId)
+
+    if (profileError) throw profileError
+
+    if (!profiles?.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'This section has no student account yet',
+        error: 'No accounts found'
+      })
+    }
+
+    const accounts = []
+
+    for (const profile of profiles) {
+      // Read the address first: it is the one piece of the credential the admin
+      // cannot reconstruct, and it never changes.
+      const { data: existing, error: readError } = await supabaseAdmin.auth.admin.getUserById(
+        profile.auth_user_id
+      )
+
+      if (readError || !existing?.user?.email) {
+        console.error(
+          '[Server] Could not read account',
+          profile.auth_user_id,
+          '-',
+          readError?.message
+        )
+        continue
+      }
+
+      const password = generatePassword()
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
+        password
+      })
+
+      if (error) {
+        console.error('[Server] Password reset failed for', profile.auth_user_id, '-', error.message)
+        continue
+      }
+
+      accounts.push({
+        role: profile.role,
+        email: existing.user.email,
+        password,
+        section_id: sectionId
+      })
+    }
+
+    if (!accounts.length) {
+      return res.status(500).json({
+        success: false,
+        message: 'Could not reset the password for any account',
+        error: 'Reset failed'
+      })
+    }
+
+    const skipped = profiles.length - accounts.length
+    if (skipped > 0) {
+      console.log('[Server] Regenerate credentials: skipped', skipped, 'account(s) for section', sectionId)
+    }
+
+    console.log('[Server] Regenerated credentials for section', sectionId, '-', accounts.length, 'account(s)')
+    res.json({ success: true, message: 'Password regenerated', data: { accounts, skipped } })
+  } catch (err) {
+    console.error('[Server] Error regenerating credentials:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to regenerate credentials' })
   }
 })
 

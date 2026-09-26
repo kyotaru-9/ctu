@@ -43,17 +43,14 @@ export const sectionService = {
     return response.data
   },
 
-  async getCredentials(id) {
-    console.log('[sectionService] getCredentials called with id:', id)
-    const response = await api.get(`/admin/sections/${id}/credentials`)
-    console.log('[sectionService] getCredentials response:', response.data)
-    return response.data
-  },
-
-  async resetPassword(id, newPassword) {
-    console.log('[sectionService] resetPassword called with id:', id)
-    const response = await api.post(`/admin/sections/${id}/reset-password`, { newPassword })
-    console.log('[sectionService] resetPassword response:', response.data)
+  /**
+   * Resets the password on every account the section owns and returns the new
+   * credentials against the existing email addresses.
+   */
+  async regenerateCredentials(id) {
+    console.log('[sectionService] regenerateCredentials called with id:', id)
+    const response = await api.post(`/admin/sections/${id}/regenerate-credentials`)
+    console.log('[sectionService] regenerateCredentials response:', response.data)
     return response.data
   }
 }

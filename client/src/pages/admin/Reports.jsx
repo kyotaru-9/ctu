@@ -1,15 +1,43 @@
-import { Container, Card, CardBody, CardHeader, Table, InputGroup, FormControl, Badge, Button, Modal, Form, Alert, Spinner, Row, Col } from 'react-bootstrap'
-import { useState, useEffect, useCallback } from 'react'
-import { biSearch, biEye, biCheck, biX, biPen, biTrash, biCheckCircleFill, biXCircleFill } from '../../utils/icons'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { reportService } from '../../services/reportService'
+import { formatDate, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
+import {
+  ActionButton,
+  Alert,
+  Button,
+  DetailList,
+  EmptyState,
+  Modal,
+  PageHeader,
+  REPORT_STATUS,
+  RowActions,
+  ScrollX,
+  StatusBadge,
+  TBody,
+  TD,
+  Textarea,
+  TH,
+  THead,
+  TR,
+  Table,
+  TableCard,
+} from '../../components/ui'
 
-const statusColors = { pending: 'warning', reviewed: 'info', resolved: 'success', rejected: 'danger' }
+const NEXT_ACTIONS = {
+  pending: [
+    { status: 'reviewed', text: 'Reviewed', label: 'Mark report as reviewed', tone: 'ok' },
+    { status: 'rejected', text: 'Reject', label: 'Reject report', tone: 'bad' },
+  ],
+  reviewed: [
+    { status: 'resolved', text: 'Resolve', label: 'Resolve report', tone: 'ok' },
+    { status: 'pending', text: 'Reopen', label: 'Reopen report', tone: 'accent' },
+  ],
+}
 
 export default function AdminReports() {
   const [reports, setReports] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedReport, setSelectedReport] = useState(null)
-  const [showModal, setShowModal] = useState(false)
+  const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [error, setError] = useState('')
@@ -35,18 +63,36 @@ export default function AdminReports() {
     fetchReports()
   }, [fetchReports])
 
-  const filteredReports = reports.filter(r => 
-    r.section?.section_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.room?.room_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.reason?.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredReports = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    if (!term) return reports
 
-  const handleStatusChange = async (reportId, newStatus) => {
+    return reports.filter((report) =>
+      [report.section?.section_name, report.section?.program, report.room?.room_code, report.reason?.name]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(term))
+    )
+  }, [reports, searchTerm])
+
+  const pendingCount = reports.filter((report) => report.status === 'pending').length
+
+  function openDetails(report) {
+    setSelected(report)
+    setAdminNote(report.admin_note || '')
+  }
+
+  function closeDetails() {
+    setSelected(null)
+    setAdminNote('')
+  }
+
+  async function handleStatusChange(reportId, newStatus) {
     setUpdating(true)
+    setError('')
     try {
       const response = await reportService.updateStatus(reportId, newStatus, adminNote)
       if (response.success) {
-        fetchReports()
+        await fetchReports()
         setAdminNote('')
       } else {
         setError(response.message || 'Failed to update status')
@@ -58,15 +104,17 @@ export default function AdminReports() {
     }
   }
 
-  const handleSaveNote = async () => {
-    if (!selectedReport) return
+  async function handleSaveNote() {
+    if (!selected) return
     setUpdating(true)
+    setError('')
     try {
-      const response = await reportService.updateStatus(selectedReport.id, selectedReport.status, adminNote)
+      const response = await reportService.updateStatus(selected.id, selected.status, adminNote)
       if (response.success) {
-        fetchReports()
-        setShowModal(false)
-        setAdminNote('')
+        await fetchReports()
+        closeDetails()
+      } else {
+        setError(response.message || 'Failed to save note')
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save note')
@@ -75,163 +123,162 @@ export default function AdminReports() {
     }
   }
 
-  if (loading) {
-    return (
-      <Container fluid className="main-content">
-        <div className="page-header">
-          <div>
-            <h1 className="h3 mb-0">Reports</h1>
-            <p className="text-muted mb-0">Manage room cleanliness reports</p>
-          </div>
-        </div>
-        <div className="d-flex justify-content-center my-5">
-          <Spinner size="lg" />
-        </div>
-      </Container>
-    )
-  }
-
   return (
-    <Container fluid className="main-content">
-      <div className="page-header">
-        <div>
-          <h1 className="h3 mb-0">Reports</h1>
-          <p className="text-muted mb-0">Manage room cleanliness reports</p>
-        </div>
-      </div>
-      
-      <Card className="shadow-sm border-0">
-        <CardHeader className="d-flex justify-content-between align-items-center">
-          <h5 className="mb-0">All Reports</h5>
-          <InputGroup style={{ maxWidth: '300px' }}>
-            <InputGroup.Text><i className={`bi ${biSearch}`}></i></InputGroup.Text>
-            <FormControl 
-              placeholder="Search reports..." 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)}
+    <>
+      <PageHeader
+        title="Reports"
+        subtitle="Manage room cleanliness reports"
+        actions={
+          pendingCount > 0 ? (
+            <span className="text-sm text-ink-muted">
+              <strong className="tabular text-ink">{pendingCount}</strong> awaiting review
+            </span>
+          ) : null
+        }
+      />
+
+      {error && (
+        <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
+          {error}
+        </Alert>
+      )}
+
+      <TableCard
+        title="All reports"
+        subtitle={`${filteredReports.length} of ${reports.length} shown`}
+        search={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search section, room, reason…"
+        loading={loading}
+        isEmpty={filteredReports.length === 0}
+        empty={
+          <EmptyState
+            icon="bi-exclamation-triangle"
+            title="No reports found"
+            description={
+              searchTerm ? 'No reports match your search.' : 'No cleanliness reports have been filed.'
+            }
+          />
+        }
+      >
+        <ScrollX minW="54rem">
+          <Table>
+            <THead>
+              <tr>
+                <TH>Date</TH>
+                <TH>Time</TH>
+                <TH>Section</TH>
+                <TH>Room</TH>
+                <TH>Reason</TH>
+                <TH>Status</TH>
+                <TH align="right">Actions</TH>
+              </tr>
+            </THead>
+            <TBody>
+              {filteredReports.map((report) => (
+                <TR key={report.id}>
+                  <TD className="whitespace-nowrap">{formatDate(report.reported_at)}</TD>
+                  <TD className="tabular whitespace-nowrap">
+                    {report.reported_at
+                      ? formatTime(new Date(report.reported_at).toTimeString().slice(0, 5))
+                      : '—'}
+                  </TD>
+                  <TD className="font-medium">{sectionLabel(report.section)}</TD>
+                  <TD className="tabular">{report.room?.room_code || '—'}</TD>
+                  <TD>{report.reason?.name || report.other_reason || '—'}</TD>
+                  <TD>
+                    <StatusBadge map={REPORT_STATUS} value={report.status} />
+                  </TD>
+                  <TD align="right">
+                    <RowActions label={`Actions for report ${report.id}`}>
+                      {(NEXT_ACTIONS[report.status] ?? []).map((action) => (
+                        <ActionButton
+                          key={action.status}
+                          text={action.text}
+                          label={action.label}
+                          tone={action.tone}
+                          disabled={updating}
+                          onClick={() => handleStatusChange(report.id, action.status)}
+                        />
+                      ))}
+                      <ActionButton
+                        text="View"
+                        label="View report details"
+                        tone="accent"
+                        onClick={() => openDetails(report)}
+                      />
+                    </RowActions>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        </ScrollX>
+      </TableCard>
+
+      <Modal
+        open={Boolean(selected)}
+        onClose={closeDetails}
+        title="Report details"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeDetails} disabled={updating}>
+              Close
+            </Button>
+            <Button variant="primary" onClick={handleSaveNote} loading={updating}>
+              Save note
+            </Button>
+          </>
+        }
+      >
+        {selected && (
+          <div className="flex flex-col gap-5">
+            <DetailList
+              items={[
+                { label: 'Reported at', value: formatDateTime(selected.reported_at) },
+                { label: 'Status', value: <StatusBadge map={REPORT_STATUS} value={selected.status} /> },
+                { label: 'Section', value: sectionLabel(selected.section) },
+                { label: 'Room', value: selected.room?.room_code || '—' },
+                { label: 'Reason', value: selected.reason?.name || '—' },
+                { label: 'Other reason', value: selected.other_reason || '—' },
+              ]}
             />
-          </InputGroup>
-        </CardHeader>
-        <CardBody>
-          {error && <Alert variant="danger" className="mb-3">{error}</Alert>}
-          <div className="table-responsive">
-            <Table hover striped className="mb-0">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Section</th>
-                  <th>Room</th>
-                  <th>Reason</th>
-                  <th>Image</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredReports.map((report) => (
-                  <tr key={report.id}>
-                    <td>{report.reported_at ? new Date(report.reported_at).toLocaleDateString() : 'N/A'}</td>
-                    <td>{report.reported_at ? new Date(report.reported_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
-                    <td>{report.section?.section_name ? `${report.section.program} ${report.section.year_level}${report.section.section_name}` : 'N/A'}</td>
-                    <td>{report.room?.room_code || 'N/A'}</td>
-                    <td>{report.reason?.name || 'N/A'}</td>
-                    <td>
-                      <Button variant="outline-primary" size="sm" onClick={() => { setSelectedReport(report); setShowModal(true); setAdminNote(report.admin_note || ''); }}>
-                        <i className={`bi ${biEye} me-1`}></i> View
-                      </Button>
-                    </td>
-                    <td><Badge bg={statusColors[report.status] || 'secondary'}>{report.status}</Badge></td>
-                    <td>
-                      <div className="btn-group btn-group-sm">
-                        {report.status === 'pending' && (
-                          <>
-                            <Button variant="outline-success" onClick={() => handleStatusChange(report.id, 'reviewed')} title="Mark Reviewed" disabled={updating}><i className={`bi ${biCheck}`}></i></Button>
-                            <Button variant="outline-danger" onClick={() => handleStatusChange(report.id, 'rejected')} title="Reject" disabled={updating}><i className={`bi ${biX}`}></i></Button>
-                          </>
-                        )}
-                        {report.status === 'reviewed' && (
-                          <>
-                            <Button variant="outline-success" onClick={() => handleStatusChange(report.id, 'resolved')} title="Resolve" disabled={updating}><i className={`bi ${biCheck}`}></i></Button>
-                            <Button variant="outline-warning" onClick={() => handleStatusChange(report.id, 'pending')} title="Reopen" disabled={updating}><i className={`bi ${biPen}`}></i></Button>
-                          </>
-                        )}
-                        <Button variant="outline-primary" onClick={() => { setSelectedReport(report); setShowModal(true); setAdminNote(report.admin_note || ''); }} title="View Details"><i className={`bi ${biEye}`}></i></Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </div>
-        </CardBody>
-      </Card>
-      
-      <Modal show={showModal} onHide={() => { setShowModal(false); setSelectedReport(null); setAdminNote(''); }} size="lg" centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Report Details</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {selectedReport && (
+
             <div>
-              <Row className="g-3 mb-3">
-                <Col md={6}>
-                  <strong>Date:</strong> {selectedReport.reported_at ? new Date(selectedReport.reported_at).toLocaleDateString() : 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Time:</strong> {selectedReport.reported_at ? new Date(selectedReport.reported_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Section:</strong> {selectedReport.section?.section_name ? `${selectedReport.section.program} ${selectedReport.section.year_level}${selectedReport.section.section_name}` : 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Room:</strong> {selectedReport.room?.room_code || 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Reason:</strong> {selectedReport.reason?.name || 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Other Reason:</strong> {selectedReport.other_reason || 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Status:</strong> <Badge bg={statusColors[selectedReport.status] || 'secondary'}>{selectedReport.status}</Badge>
-                </Col>
-              </Row>
-              <div className="mb-3">
-                <strong>Description:</strong>
-                <p className="mt-1">{selectedReport.description || 'No description'}</p>
-              </div>
-              <div className="mb-3">
-                <strong>Image Proof:</strong>
-                <div className="mt-2">
-                  {selectedReport.image_url ? (
-                    <img src={selectedReport.image_url} alt="Report proof" className="img-fluid rounded" style={{ maxHeight: '300px' }} />
-                  ) : (
-                    <p className="text-muted">No image</p>
-                  )}
-                </div>
-              </div>
-              <hr />
-              <div className="mb-3">
-                <Form.Label>Admin Note</Form.Label>
-                <Form.Control
-                  as="textarea"
-                  rows={3}
-                  value={adminNote}
-                  onChange={(e) => setAdminNote(e.target.value)}
-                  placeholder="Add admin note..."
-                />
-              </div>
+              <p className="mb-1.5 text-xs font-medium tracking-wide text-ink-muted uppercase">
+                Description
+              </p>
+              <p className="text-sm whitespace-pre-wrap text-ink">
+                {selected.description || 'No description provided.'}
+              </p>
             </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => { setShowModal(false); setSelectedReport(null); setAdminNote(''); }}>Close</Button>
-          <Button variant="primary" disabled={updating} onClick={handleSaveNote}>
-            {updating ? <Spinner size="sm" /> : 'Save Note'}
-          </Button>
-        </Modal.Footer>
+
+            <div>
+              <p className="mb-2 text-xs font-medium tracking-wide text-ink-muted uppercase">
+                Image proof
+              </p>
+              {selected.image_url ? (
+                <img
+                  src={selected.image_url}
+                  alt={`Proof submitted for ${selected.reason?.name ?? 'report'}`}
+                  className="max-h-80 w-full rounded-md border border-line object-contain"
+                />
+              ) : (
+                <p className="text-sm text-ink-muted">No image attached.</p>
+              )}
+            </div>
+
+            <Textarea
+              label="Admin note"
+              value={adminNote}
+              onChange={(event) => setAdminNote(event.target.value)}
+              placeholder="Add a note for the record…"
+              rows={3}
+            />
+          </div>
+        )}
       </Modal>
-    </Container>
+    </>
   )
 }

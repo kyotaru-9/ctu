@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Form, Button, Alert, Card, CardBody } from 'react-bootstrap'
 import { useAuth } from '../../context/AuthContext'
-import { biPerson, biLock, biEye, biEyeSlash } from '../../utils/icons'
+import { biBuilding, biPerson } from '../../utils/icons'
+import { Alert, Button, Card, CardBody, Input } from '../../components/ui'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -10,34 +10,28 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  
+
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  
+
   const from = location.state?.from?.pathname || '/'
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  async function handleSubmit(event) {
+    event.preventDefault()
     setError('')
     setLoading(true)
-    
+
     try {
       const user = await login(email, password)
-      console.log('[Login] User logged in:', { role: user?.role, email: user?.email })
-      
-      let redirectPath
-      if (user?.role === 'admin') {
-        redirectPath = '/admin/dashboard'
-      } else if (user?.role === 'student') {
-        redirectPath = '/student/dashboard'
-      } else if (user?.role === 'student_special') {
-        redirectPath = '/special/dashboard'
-      } else {
-        redirectPath = from
-      }
-      
-      console.log('[Login] Redirecting to:', redirectPath)
+
+      const redirectPath =
+        {
+          admin: '/admin/dashboard',
+          student: '/student/dashboard',
+          student_special: '/special/dashboard',
+        }[user?.role] ?? from
+
       navigate(redirectPath, { replace: true })
     } catch (err) {
       setError(err.response?.data?.message || 'Invalid email or password')
@@ -47,98 +41,88 @@ export default function Login() {
   }
 
   return (
-    <div className="d-flex align-items-center justify-content-center vh-100 bg-light">
-      <div className="w-100" style={{ maxWidth: '420px' }}>
-        <div className="text-center mb-4">
-          <div className="d-inline-flex align-items-center justify-content-center bg-primary bg-gradient rounded-3 p-3 mb-3" style={{ width: '80px', height: '80px' }}>
-            <i className="bi bi-building text-white" style={{ fontSize: '2.5rem' }}></i>
-          </div>
-          <h2 className="fw-bold text-dark">CTU Clean-Track-Update</h2>
-          <p className="text-muted">Classroom Cleanliness Monitoring System</p>
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-canvas px-4 py-10">
+      <div className="w-full max-w-sm">
+        <div className="mb-7 text-center">
+          <span
+            aria-hidden="true"
+            className="mb-5 inline-grid h-12 w-12 place-items-center rounded-xl bg-accent text-xl text-white"
+          >
+            <i className={biBuilding} />
+          </span>
+          <h1 className="text-xl font-semibold tracking-tight text-ink">CTU Clean-Track</h1>
+          <p className="mt-1.5 text-sm text-ink-muted">
+            Classroom cleanliness monitoring
+          </p>
         </div>
-        
-        <Card className="shadow-sm border-0">
-          <CardBody className="p-4 p-md-5">
+
+        <Card>
+          <CardBody className="p-5 sm:p-6">
             {error && (
-              <Alert variant="danger" dismissible onClose={() => setError('')}>
-                <i className="bi bi-exclamation-triangle-fill me-2"></i>
+              <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
                 {error}
               </Alert>
             )}
-            
-            <Form onSubmit={handleSubmit} noValidate>
-              <div className="mb-3">
-                <label htmlFor="email" className="form-label fw-medium">Email Address</label>
-                <div className="input-group">
-                  <span className="input-group-text bg-transparent border-end-0">
-                    <i className={biPerson} style={{ fontSize: '1.1rem' }}></i>
-                  </span>
-                  <Form.Control
-                    id="email"
-                    type="email"
-                    className="border-start-0"
-                    placeholder="Enter your email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                    disabled={loading}
+
+            <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+              <Input
+                id="email"
+                type="email"
+                label="Email address"
+                icon={biPerson}
+                placeholder="you@ctu.edu.ph"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                disabled={loading}
+                required
+              />
+
+              <div>
+                <label htmlFor="password" className="mb-1.5 block text-[0.8125rem] font-medium text-ink">
+                  Password
+                </label>
+                <div className="relative">
+                  <i
+                    className="bi bi-lock-fill pointer-events-none absolute top-1/2 start-3 -translate-y-1/2 text-sm text-ink-subtle"
+                    aria-hidden="true"
                   />
-                </div>
-              </div>
-              
-              <div className="mb-4">
-                <label htmlFor="password" className="form-label fw-medium">Password</label>
-                <div className="input-group">
-                  <span className="input-group-text bg-transparent border-end-0">
-                    <i className={biLock} style={{ fontSize: '1.1rem' }}></i>
-                  </span>
-                  <Form.Control
+                  <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    className="border-start-0"
                     placeholder="Enter your password"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
+                    onChange={(event) => setPassword(event.target.value)}
                     autoComplete="current-password"
                     disabled={loading}
+                    required
+                    className="field ps-9 pe-16"
                   />
                   <button
                     type="button"
-                    className="btn btn-outline-secondary border-start-0"
-                    onClick={() => setShowPassword(!showPassword)}
+                    onClick={() => setShowPassword((value) => !value)}
                     disabled={loading}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                    className="absolute top-1/2 end-1.5 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
                   >
-                    <i className={showPassword ? biEyeSlash : biEye}></i>
+                    {showPassword ? 'Hide' : 'Show'}
                   </button>
                 </div>
               </div>
-              
-              <Button 
-                type="submit" 
-                variant="primary" 
-                className="w-100 py-2 fw-medium"
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                    Signing in...
-                  </>
-                ) : (
-                  'Sign In'
-                )}
+
+              <Button type="submit" variant="primary" size="lg" block loading={loading}>
+                {loading ? 'Signing in…' : 'Sign in'}
               </Button>
-            </Form>
-            
-            <div className="text-center mt-4 text-muted small">
-              <p className="mb-1">Cebu Technological University</p>
-              <p className="mb-0">Clean-Track-Update System</p>
-            </div>
+            </form>
           </CardBody>
         </Card>
+
+        <p className="mt-6 text-center text-xs leading-relaxed text-ink-subtle">
+          Cebu Technological University
+          <br />
+          Clean-Track-Update System
+        </p>
       </div>
     </div>
   )

@@ -1,13 +1,29 @@
-import { Container, Card, CardBody, CardHeader, Table, InputGroup, FormControl, Badge, Button, Modal, Spinner, Alert, Row, Col } from 'react-bootstrap'
-import { useState, useEffect, useCallback } from 'react'
-import { biSearch, biEye, biPerson, biCalendar } from '../../utils/icons'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { auditService } from '../../services/auditService'
+import { formatDate, formatDateTime } from '../../lib/format'
+import {
+  ActionButton,
+  Alert,
+  Badge,
+  Button,
+  DetailList,
+  EmptyState,
+  Modal,
+  PageHeader,
+  ScrollX,
+  TBody,
+  TD,
+  TH,
+  THead,
+  TR,
+  Table,
+  TableCard,
+} from '../../components/ui'
 
 export default function AdminAuditLogs() {
   const [auditLogs, setAuditLogs] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
-  const [showModal, setShowModal] = useState(false)
-  const [selectedLog, setSelectedLog] = useState(null)
+  const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -31,124 +47,114 @@ export default function AdminAuditLogs() {
     fetchAuditLogs()
   }, [fetchAuditLogs])
 
-  const filteredLogs = auditLogs.filter(log => 
-    log.user?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    log.action?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    log.entity_type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    log.description?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredLogs = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    if (!term) return auditLogs
 
-  if (loading) {
-    return (
-      <Container fluid className="main-content">
-        <div className="page-header">
-          <div>
-            <h1 className="h3 mb-0">Audit Logs</h1>
-            <p className="text-muted mb-0">Track system activities and administrative actions</p>
-          </div>
-        </div>
-        <div className="d-flex justify-content-center my-5">
-          <Spinner size="lg" />
-        </div>
-      </Container>
+    return auditLogs.filter((log) =>
+      [log.user?.full_name, log.action, log.entity_type, log.description, log.ip_address]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(term))
     )
-  }
+  }, [auditLogs, searchTerm])
 
   return (
-    <Container fluid className="main-content">
-      <div className="page-header">
-        <div>
-          <h1 className="h3 mb-0">Audit Logs</h1>
-          <p className="text-muted mb-0">Track system activities and administrative actions</p>
-        </div>
-      </div>
-      
-      <Card className="shadow-sm border-0">
-        <CardHeader className="d-flex justify-content-between align-items-center">
-          <h5 className="mb-0">System Activity Log</h5>
-          <InputGroup style={{ maxWidth: '300px' }}>
-            <InputGroup.Text><i className={`bi ${biSearch}`}></i></InputGroup.Text>
-            <FormControl 
-              placeholder="Search logs..." 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </InputGroup>
-        </CardHeader>
-        <CardBody>
-          {error && <Alert variant="danger" className="mb-3">{error}</Alert>}
-          <div className="table-responsive">
-            <Table hover striped className="mb-0">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>User</th>
-                  <th>Action</th>
-                  <th>Entity</th>
-                  <th>Description</th>
-                  <th>IP Address</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLogs.map((log) => (
-                  <tr key={log.id}>
-                    <td>{log.created_at ? new Date(log.created_at).toLocaleDateString() : 'N/A'}</td>
-                    <td>{log.user?.full_name || 'System'}</td>
-                    <td><Badge bg="primary">{log.action}</Badge></td>
-                    <td>{log.entity_type || 'N/A'}</td>
-                    <td>{log.description}</td>
-                    <td className="text-muted small">{log.ip_address || 'N/A'}</td>
-                    <td>
-                      <Button variant="outline-primary" size="sm" onClick={() => { setSelectedLog(log); setShowModal(true); }}>
-                        <i className={`bi ${biEye} me-1`}></i> View
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </div>
-        </CardBody>
-      </Card>
-      
-      <Modal show={showModal} onHide={() => { setShowModal(false); setSelectedLog(null); }} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Audit Log Details</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {selectedLog && (
-            <div>
-              <Row className="g-3">
-                <Col md={6}>
-                  <strong>Date:</strong> {selectedLog.created_at ? new Date(selectedLog.created_at).toLocaleString() : 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>User:</strong> {selectedLog.user?.full_name || 'System'}
-                </Col>
-                <Col md={6}>
-                  <strong>Action:</strong> <Badge bg="primary">{selectedLog.action}</Badge>
-                </Col>
-                <Col md={6}>
-                  <strong>Entity:</strong> {selectedLog.entity_type || 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Entity ID:</strong> {selectedLog.entity_id || 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>IP Address:</strong> {selectedLog.ip_address || 'N/A'}
-                </Col>
-                <Col md={12}>
-                  <strong>Description:</strong> {selectedLog.description}
-                </Col>
-              </Row>
-            </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => { setShowModal(false); setSelectedLog(null); }}>Close</Button>
-        </Modal.Footer>
+    <>
+      <PageHeader title="Audit logs" subtitle="Track system activity and administrative actions" />
+
+      {error && (
+        <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
+          {error}
+        </Alert>
+      )}
+
+      <TableCard
+        title="System activity"
+        subtitle={`${filteredLogs.length} of ${auditLogs.length} entries`}
+        search={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search user, action, entity…"
+        loading={loading}
+        isEmpty={filteredLogs.length === 0}
+        empty={
+          <EmptyState
+            icon="bi-journal-text"
+            title="No activity found"
+            description={
+              searchTerm ? 'No entries match your search.' : 'Administrative actions will appear here.'
+            }
+          />
+        }
+      >
+        <ScrollX minW="54rem">
+          <Table>
+            <THead>
+              <tr>
+                <TH>Date</TH>
+                <TH>User</TH>
+                <TH>Action</TH>
+                <TH>Entity</TH>
+                <TH>Description</TH>
+                <TH>IP address</TH>
+                <TH align="right">Details</TH>
+              </tr>
+            </THead>
+            <TBody>
+              {filteredLogs.map((log) => (
+                <TR key={log.id}>
+                  <TD className="whitespace-nowrap">{formatDate(log.created_at)}</TD>
+                  <TD className="font-medium">{log.user?.full_name || 'System'}</TD>
+                  <TD>
+                    <Badge tone="accent">{log.action}</Badge>
+                  </TD>
+                  <TD>{log.entity_type || '—'}</TD>
+                  <TD className="max-w-80">
+                    <span className="line-clamp-2-safe">{log.description}</span>
+                  </TD>
+                  <TD className="tabular text-ink-muted">{log.ip_address || '—'}</TD>
+                  <TD align="right">
+                    <div className="flex justify-end">
+                      <ActionButton
+                        text="View"
+                        label="View log entry"
+                        tone="accent"
+                        onClick={() => setSelected(log)}
+                      />
+                    </div>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        </ScrollX>
+      </TableCard>
+
+      <Modal
+        open={Boolean(selected)}
+        onClose={() => setSelected(null)}
+        title="Audit entry"
+        size="sm"
+        footer={
+          <Button variant="secondary" onClick={() => setSelected(null)}>
+            Close
+          </Button>
+        }
+      >
+        {selected && (
+          <DetailList
+            columns={1}
+            items={[
+              { label: 'Date', value: formatDateTime(selected.created_at) },
+              { label: 'User', value: selected.user?.full_name || 'System' },
+              { label: 'Action', value: <Badge tone="accent">{selected.action}</Badge> },
+              { label: 'Entity', value: selected.entity_type || '—' },
+              { label: 'Entity ID', value: selected.entity_id || '—', className: 'font-mono text-xs' },
+              { label: 'IP address', value: selected.ip_address || '—' },
+              { label: 'Description', value: selected.description },
+            ]}
+          />
+        )}
       </Modal>
-    </Container>
+    </>
   )
 }

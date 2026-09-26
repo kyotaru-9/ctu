@@ -1,137 +1,162 @@
-import { Container, Card, CardBody, Button, Row, Col, Spinner, Alert } from 'react-bootstrap'
-import { useParams, Link, useNavigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import { biQRCode, biPrinter, biBuilding, biArrowLeft, biDownload } from '../../utils/icons'
+import { useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { roomService } from '../../services/roomService'
+import { biArrowLeft, biDownload, biPrinter } from '../../utils/icons'
+import {
+  Alert,
+  Button,
+  Card,
+  CardBody,
+  DetailList,
+  PageHeader,
+  SkeletonCards,
+  SkeletonPage,
+} from '../../components/ui'
 
 export default function AdminQRPrint() {
   const { roomId } = useParams()
-  const navigate = useNavigate()
   const [room, setRoom] = useState(null)
-  const [qrCodeDataUrl, setQrCodeDataUrl] = useState('')
+  const [qrDataUrl, setQrDataUrl] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    const fetchRoom = async () => {
+    let cancelled = false
+
+    async function fetchRoom() {
       try {
         const response = await roomService.getById(roomId)
+        if (cancelled) return
+
         if (response.success) {
           setRoom(response.data)
         } else {
           setError(response.message || 'Room not found')
         }
       } catch (err) {
-        setError(err.response?.data?.message || 'Failed to load room')
+        if (!cancelled) setError(err.response?.data?.message || 'Failed to load room')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
+
     fetchRoom()
+    return () => {
+      cancelled = true
+    }
   }, [roomId])
 
   useEffect(() => {
-    if (room) {
-      const qrUrl = `${window.location.origin}/scan/${room.qr_token}`
-      QRCode.toDataURL(qrUrl, { width: 256, margin: 2 })
-        .then(url => setQrCodeDataUrl(url))
-        .catch(console.error)
+    if (!room) return
+
+    let cancelled = false
+    QRCode.toDataURL(`${window.location.origin}/scan/${room.qr_token}`, { width: 640, margin: 2 })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url)
+      })
+      .catch(() => {
+        if (!cancelled) setQrDataUrl('')
+      })
+
+    return () => {
+      cancelled = true
     }
   }, [room])
 
-  const handlePrint = () => {
-    window.print()
-  }
-
-  const handleDownload = async () => {
-    if (qrCodeDataUrl) {
-      const link = document.createElement('a')
-      link.href = qrCodeDataUrl
-      link.download = `QR_${room.room_code}.png`
-      link.click()
-    }
-  }
-
-  const handleBack = () => {
-    navigate('/admin/rooms')
+  function handleDownload() {
+    if (!qrDataUrl) return
+    const link = document.createElement('a')
+    link.href = qrDataUrl
+    link.download = `QR_${room.room_code}.png`
+    link.click()
   }
 
   if (loading) {
-    return (
-      <Container fluid className="main-content qr-print-page">
-        <div className="d-flex justify-content-center my-5">
-          <Spinner size="lg" />
-        </div>
-      </Container>
-    )
+    return <SkeletonPage><SkeletonCards count={2} columns={2} /></SkeletonPage>
   }
 
   if (error || !room) {
     return (
-      <Container fluid className="main-content qr-print-page">
-        <div className="d-flex justify-content-between align-items-center mb-4">
-          <Link to="/admin/rooms" className="btn btn-outline-secondary" onClick={handleBack}>
-            <i className={`bi ${biArrowLeft} me-1`}></i> Back to Rooms
-          </Link>
-        </div>
-        <Alert variant="danger">Room not found: {error}</Alert>
-      </Container>
+      <>
+        <PageHeader title="QR print sheet" />
+        <Alert tone="bad">{error || 'Room not found.'}</Alert>
+        <Link
+          to="/admin/rooms"
+          className="mt-4 inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+        >
+          <i className={biArrowLeft} aria-hidden="true" />
+          Back to rooms
+        </Link>
+      </>
     )
   }
 
   const qrUrl = `${window.location.origin}/scan/${room.qr_token}`
 
   return (
-    <Container fluid className="main-content qr-print-page">
-      <div className="d-flex justify-content-between align-items-center mb-4 no-print">
-        <Link to="/admin/rooms" className="btn btn-outline-secondary" onClick={handleBack}>
-          <i className={`bi ${biArrowLeft} me-1`}></i> Back to Rooms
+    <>
+      <div className="no-print mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Link
+          to="/admin/rooms"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted transition-colors hover:text-ink"
+        >
+          <i className={biArrowLeft} aria-hidden="true" />
+          Back to rooms
         </Link>
-        <div className="d-flex gap-2">
-          <Button variant="primary" onClick={handleDownload}>
-            <i className={`bi ${biDownload} me-1`}></i> Download QR
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button variant="secondary" icon={biPrinter} onClick={() => window.print()}>
+            Print
           </Button>
-          <Button variant="outline-secondary" onClick={handlePrint}>
-            <i className={`bi ${biPrinter} me-1`}></i> Print
+          <Button variant="primary" icon={biDownload} onClick={handleDownload} disabled={!qrDataUrl}>
+            Download QR
           </Button>
         </div>
       </div>
-      
-      <Card className="shadow-sm border-0">
-        <CardBody className="text-center p-4">
-          <div className="mb-3">
-            <i className={`bi ${biBuilding} text-primary`} style={{ fontSize: '3rem' }}></i>
+
+      {/* The sheet itself: sized for a 4×6 label, chrome stripped when printing. */}
+      <Card className="print-sheet mx-auto max-w-md">
+        <CardBody className="flex flex-col items-center p-8 text-center">
+          <i className="bi bi-building-fill mb-4 text-3xl text-accent" aria-hidden="true" />
+          <h1 className="text-base font-semibold tracking-wide text-ink uppercase">
+            CTU Clean-Track
+          </h1>
+          <p className="mt-1 text-xs text-ink-muted">Classroom cleanliness monitoring</p>
+
+          <div className="my-6 w-full rounded-md border border-line bg-surface-sunken p-4 text-start">
+            <DetailList
+              columns={1}
+              items={[
+                { label: 'Room', value: room.room_name },
+                { label: 'Room code', value: room.room_code },
+                {
+                  label: 'Location',
+                  value: [room.building, room.floor && `Floor ${room.floor}`]
+                    .filter(Boolean)
+                    .join(', '),
+                },
+              ]}
+            />
           </div>
-          <h2 className="mb-1">CTU CLEAN-TRACK-UPDATE</h2>
-          <p className="text-muted mb-4">Classroom Cleanliness Monitoring System</p>
-          
-          <div className="row justify-content-center mb-4">
-            <div className="col-md-6">
-              <div className="p-3 bg-light rounded">
-                <h5 className="mb-1">{room.room_name}</h5>
-                <p className="mb-1"><strong>Room Code:</strong> {room.room_code}</p>
-                <p className="mb-0"><strong>Location:</strong> {room.building}, Floor {room.floor}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="qr-display mb-4">
-            {qrCodeDataUrl ? (
-              <img src={qrCodeDataUrl} alt={`QR Code for ${room.room_code}`} style={{ width: '256px', height: '256px' }} />
+
+          <div className="qr-frame">
+            {qrDataUrl ? (
+              <img
+                src={qrDataUrl}
+                alt={`QR code for room ${room.room_code}`}
+                className="h-auto w-56"
+              />
             ) : (
-              <div className="bg-light d-inline-flex align-items-center justify-content-center" style={{ width: '256px', height: '256px' }}>
-                <span className="text-muted">Generating QR...</span>
+              <div className="grid h-56 w-56 place-items-center rounded-md bg-surface-sunken text-sm text-ink-muted">
+                Generating…
               </div>
             )}
           </div>
-          
-          <div className="text-muted small">
-            <p className="mb-1">Scan this QR code before submitting room condition.</p>
-            <p className="mb-0">URL: {qrUrl}</p>
-          </div>
+
+          <p className="mt-6 text-sm text-ink">Scan before submitting the room condition.</p>
+          <p className="mt-1 font-mono text-[0.6875rem] break-all text-ink-subtle">{qrUrl}</p>
         </CardBody>
       </Card>
-    </Container>
+    </>
   )
 }

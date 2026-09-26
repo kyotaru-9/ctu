@@ -1,15 +1,73 @@
-import { Container, Card, CardBody, CardHeader, Table, InputGroup, FormControl, Badge, Button, Spinner, Alert, Modal } from 'react-bootstrap'
-import { useState, useEffect, useCallback } from 'react'
-import { biSearch, biEye, biCheckCircleFill, biXCircleFill } from '../../utils/icons'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { occupationService } from '../../services/occupationService'
+import { formatDate, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
+import {
+  ActionButton,
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardBody,
+  CardTitle,
+  CONDITION,
+  DetailList,
+  EmptyState,
+  Modal,
+  OCCUPATION_STATUS,
+  PageHeader,
+  ScrollX,
+  StatusBadge,
+  TBody,
+  TD,
+  TH,
+  THead,
+  TR,
+  Table,
+  TableCard,
+} from '../../components/ui'
 
-const statusColors = { active: 'warning', completed: 'success', cancelled: 'danger' }
+function SubmissionFlag({ submitted, label }) {
+  return submitted ? (
+    <Badge tone="ok" icon="bi bi-check-lg">
+      {label}
+    </Badge>
+  ) : (
+    <Badge tone="bad" icon="bi bi-x-lg">
+      Missing
+    </Badge>
+  )
+}
+
+function SubmissionPanel({ title, submitted, submittedAt, condition }) {
+  return (
+    <Card className="h-full">
+      <CardBody>
+        <CardTitle className="mb-4">{title}</CardTitle>
+
+        {submitted ? (
+          <DetailList
+            columns={1}
+            items={[
+              { label: 'Status', value: <Badge tone="ok">Submitted</Badge> },
+              { label: 'Submitted at', value: formatDateTime(submittedAt) },
+              {
+                label: 'Condition',
+                value: <StatusBadge map={CONDITION} value={condition} />,
+              },
+            ]}
+          />
+        ) : (
+          <p className="text-sm text-ink-muted">Not submitted.</p>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
 
 export default function AdminOccupations() {
   const [occupations, setOccupations] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedOccupation, setSelectedOccupation] = useState(null)
-  const [showModal, setShowModal] = useState(false)
+  const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -33,176 +91,150 @@ export default function AdminOccupations() {
     fetchOccupations()
   }, [fetchOccupations])
 
-  const filteredOccupations = occupations.filter(o => 
-    o.section?.section_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    o.room?.room_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    o.schedule?.subject_name?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredOccupations = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    if (!term) return occupations
 
-  const getStatusBadge = (status) => {
-    return <Badge bg={statusColors[status] || 'secondary'}>{status}</Badge>
-  }
-
-  if (loading) {
-    return (
-      <Container fluid className="main-content">
-        <div className="page-header">
-          <div>
-            <h1 className="h3 mb-0">Occupations</h1>
-            <p className="text-muted mb-0">View classroom occupation records</p>
-          </div>
-        </div>
-        <div className="d-flex justify-content-center my-5">
-          <Spinner size="lg" />
-        </div>
-      </Container>
+    return occupations.filter((occupation) =>
+      [
+        occupation.section?.section_name,
+        occupation.section?.program,
+        occupation.room?.room_code,
+        occupation.schedule?.subject_name,
+      ]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(term))
     )
-  }
+  }, [occupations, searchTerm])
 
   return (
-    <Container fluid className="main-content">
-      <div className="page-header">
-        <div>
-          <h1 className="h3 mb-0">Occupations</h1>
-          <p className="text-muted mb-0">View classroom occupation records</p>
-        </div>
-      </div>
-      
-      <Card className="shadow-sm border-0">
-        <CardHeader className="d-flex justify-content-between align-items-center">
-          <h5 className="mb-0">Occupation Records</h5>
-          <InputGroup style={{ maxWidth: '300px' }}>
-            <InputGroup.Text><i className={`bi ${biSearch}`}></i></InputGroup.Text>
-            <FormControl 
-              placeholder="Search occupations..." 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </InputGroup>
-        </CardHeader>
-        <CardBody>
-          {error && <Alert variant="danger" className="mb-3">{error}</Alert>}
-          <div className="table-responsive">
-            <Table hover striped className="mb-0">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Section</th>
-                  <th>Room</th>
-                  <th>Subject</th>
-                  <th>Start</th>
-                  <th>End</th>
-                  <th>Before</th>
-                  <th>After</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredOccupations.map((occ) => (
-                  <tr key={occ.id}>
-                    <td>{occ.occupation_date ? new Date(occ.occupation_date).toLocaleDateString() : 'N/A'}</td>
-                    <td>{occ.section?.section_name ? `${occ.section.program} ${occ.section.year_level}${occ.section.section_name}` : 'N/A'}</td>
-                    <td>{occ.room?.room_code || 'N/A'}</td>
-                    <td>{occ.schedule?.subject_name || 'N/A'}</td>
-                    <td>{occ.started_at ? new Date(occ.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
-                    <td>{occ.ended_at ? new Date(occ.ended_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
-                    <td>{occ.before_submitted ? <i className="bi bi-check-circle-fill text-success" /> : <i className="bi bi-x-circle-fill text-danger" />}</td>
-                    <td>{occ.after_submitted ? <i className="bi bi-check-circle-fill text-success" /> : <i className="bi bi-x-circle-fill text-danger" />}</td>
-                    <td>{getStatusBadge(occ.status)}</td>
-                    <td>
-                      <Button variant="outline-primary" size="sm" onClick={() => { setSelectedOccupation(occ); setShowModal(true); }} title="View Details">
-                        <i className={`bi ${biEye}`}></i>
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </div>
-        </CardBody>
-      </Card>
+    <>
+      <PageHeader title="Occupations" subtitle="View classroom occupation records" />
 
-      <Modal show={showModal} onHide={() => { setShowModal(false); setSelectedOccupation(null); }} size="lg" centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Occupation Details</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {selectedOccupation && (
-            <div>
-              <Row className="g-3 mb-3">
-                <Col md={6}>
-                  <strong>Date:</strong> {selectedOccupation.occupation_date ? new Date(selectedOccupation.occupation_date).toLocaleDateString() : 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Status:</strong> {getStatusBadge(selectedOccupation.status)}
-                </Col>
-                <Col md={6}>
-                  <strong>Section:</strong> {selectedOccupation.section?.section_name ? `${selectedOccupation.section.program} ${selectedOccupation.section.year_level}${selectedOccupation.section.section_name}` : 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Room:</strong> {selectedOccupation.room?.room_code || 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Subject:</strong> {selectedOccupation.schedule?.subject_name || 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Instructor:</strong> {selectedOccupation.schedule?.instructor_name || 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Started:</strong> {selectedOccupation.started_at ? new Date(selectedOccupation.started_at).toLocaleString() : 'N/A'}
-                </Col>
-                <Col md={6}>
-                  <strong>Ended:</strong> {selectedOccupation.ended_at ? new Date(selectedOccupation.ended_at).toLocaleString() : 'N/A'}
-                </Col>
-              </Row>
-              <hr />
-              <h6>Submissions</h6>
-              <Row className="g-3">
-                <Col md={6}>
-                  <Card>
-                    <CardHeader className="bg-light">
-                      <h6 className="mb-0">Before Class</h6>
-                    </CardHeader>
-                    <CardBody>
-                      {selectedOccupation.before_submitted ? (
-                        <>
-                          <p className="mb-1"><strong>Status:</strong> <Badge bg="success">Submitted</Badge></p>
-                          <p className="mb-1"><strong>Time:</strong> {selectedOccupation.before_submitted_at ? new Date(selectedOccupation.before_submitted_at).toLocaleString() : 'N/A'}</p>
-                          <p className="mb-0"><strong>Condition:</strong> {selectedOccupation.before_condition || 'N/A'}</p>
-                        </>
-                      ) : (
-                        <p className="text-muted">Not submitted</p>
-                      )}
-                    </CardBody>
-                  </Card>
-                </Col>
-                <Col md={6}>
-                  <Card>
-                    <CardHeader className="bg-light">
-                      <h6 className="mb-0">After Class</h6>
-                    </CardHeader>
-                    <CardBody>
-                      {selectedOccupation.after_submitted ? (
-                        <>
-                          <p className="mb-1"><strong>Status:</strong> <Badge bg="success">Submitted</Badge></p>
-                          <p className="mb-1"><strong>Time:</strong> {selectedOccupation.after_submitted_at ? new Date(selectedOccupation.after_submitted_at).toLocaleString() : 'N/A'}</p>
-                          <p className="mb-0"><strong>Condition:</strong> {selectedOccupation.after_condition || 'N/A'}</p>
-                        </>
-                      ) : (
-                        <p className="text-muted">Not submitted</p>
-                      )}
-                    </CardBody>
-                  </Card>
-                </Col>
-              </Row>
+      {error && (
+        <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
+          {error}
+        </Alert>
+      )}
+
+      <TableCard
+        title="Occupation records"
+        subtitle={`${filteredOccupations.length} of ${occupations.length} shown`}
+        search={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search section, room, subject…"
+        loading={loading}
+        isEmpty={filteredOccupations.length === 0}
+        empty={
+          <EmptyState
+            icon="bi-clipboard-check"
+            title="No occupations found"
+            description="Occupations are created when a section submits a before condition."
+          />
+        }
+      >
+        <ScrollX minW="60rem">
+          <Table>
+            <THead>
+              <tr>
+                <TH>Date</TH>
+                <TH>Section</TH>
+                <TH>Room</TH>
+                <TH>Subject</TH>
+                <TH>Start</TH>
+                <TH>End</TH>
+                <TH>Before</TH>
+                <TH>After</TH>
+                <TH>Status</TH>
+                <TH align="right">Details</TH>
+              </tr>
+            </THead>
+            <TBody>
+              {filteredOccupations.map((occupation) => (
+                <TR key={occupation.id}>
+                  <TD className="whitespace-nowrap">{formatDate(occupation.occupation_date)}</TD>
+                  <TD className="font-medium">{sectionLabel(occupation.section)}</TD>
+                  <TD className="tabular">{occupation.room?.room_code || '—'}</TD>
+                  <TD>{occupation.schedule?.subject_name || '—'}</TD>
+                  <TD className="tabular whitespace-nowrap">
+                    {occupation.started_at
+                      ? formatTime(new Date(occupation.started_at).toTimeString().slice(0, 5))
+                      : '—'}
+                  </TD>
+                  <TD className="tabular whitespace-nowrap">
+                    {occupation.ended_at
+                      ? formatTime(new Date(occupation.ended_at).toTimeString().slice(0, 5))
+                      : '—'}
+                  </TD>
+                  <TD>
+                    <SubmissionFlag submitted={occupation.before_submitted} label="Done" />
+                  </TD>
+                  <TD>
+                    <SubmissionFlag submitted={occupation.after_submitted} label="Done" />
+                  </TD>
+                  <TD>
+                    <StatusBadge map={OCCUPATION_STATUS} value={occupation.status} />
+                  </TD>
+                  <TD align="right">
+                    <div className="flex justify-end">
+                      <ActionButton
+                        text="View"
+                        label="View occupation details"
+                        tone="accent"
+                        onClick={() => setSelected(occupation)}
+                      />
+                    </div>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        </ScrollX>
+      </TableCard>
+
+      <Modal
+        open={Boolean(selected)}
+        onClose={() => setSelected(null)}
+        title="Occupation details"
+        size="lg"
+        footer={
+          <Button variant="secondary" onClick={() => setSelected(null)}>
+            Close
+          </Button>
+        }
+      >
+        {selected && (
+          <div className="flex flex-col gap-6">
+            <DetailList
+              items={[
+                { label: 'Date', value: formatDate(selected.occupation_date) },
+                { label: 'Status', value: <StatusBadge map={OCCUPATION_STATUS} value={selected.status} /> },
+                { label: 'Section', value: sectionLabel(selected.section) },
+                { label: 'Room', value: selected.room?.room_code || '—' },
+                { label: 'Subject', value: selected.schedule?.subject_name || '—' },
+                { label: 'Instructor', value: selected.schedule?.instructor_name || '—' },
+                { label: 'Started', value: formatDateTime(selected.started_at) },
+                { label: 'Ended', value: formatDateTime(selected.ended_at) },
+              ]}
+            />
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <SubmissionPanel
+                title="Before class"
+                submitted={selected.before_submitted}
+                submittedAt={selected.before_submitted_at}
+                condition={selected.before_condition}
+              />
+              <SubmissionPanel
+                title="After class"
+                submitted={selected.after_submitted}
+                submittedAt={selected.after_submitted_at}
+                condition={selected.after_condition}
+              />
             </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => { setShowModal(false); setSelectedOccupation(null); }}>Close</Button>
-        </Modal.Footer>
+          </div>
+        )}
       </Modal>
-    </Container>
+    </>
   )
 }

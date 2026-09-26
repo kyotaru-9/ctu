@@ -1,7 +1,36 @@
-import { Container, Card, CardBody, CardHeader, Form, Button, Row, Col, InputGroup, FormControl, Alert, Spinner } from 'react-bootstrap'
-import { useState, useEffect } from 'react'
-import { biGear, biShield, biBell, biDatabase, biArrowRepeat, biPlus, biPencil, biTrash, biCheck, biX } from '../../utils/icons'
+import { useCallback, useEffect, useState } from 'react'
 import { reportService } from '../../services/reportService'
+import { biCheck, biPencil, biPlus, biTrash, biX } from '../../utils/icons'
+import {
+  ActionButton,
+  Alert,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+  ConfirmDialog,
+  Input,
+  PageHeader,
+  SkeletonText,
+  Switch,
+} from '../../components/ui'
+
+const GENERAL_DEFAULTS = {
+  systemName: 'CTU Clean-Track',
+  institution: 'Cebu Technological University',
+  timeLimit: 30,
+  maxImageSize: 10,
+  imageTypes: 'jpg, jpeg, png, webp',
+}
+
+const SECURITY_DEFAULTS = {
+  requireQr: true,
+  allowManualTime: true,
+  preventDuplicates: true,
+  requireImageProof: true,
+  enableNotifications: true,
+}
 
 export default function AdminSettings() {
   const [reportReasons, setReportReasons] = useState([])
@@ -9,52 +38,70 @@ export default function AdminSettings() {
   const [newReason, setNewReason] = useState('')
   const [editingReason, setEditingReason] = useState(null)
   const [editReasonName, setEditReasonName] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    const fetchReasons = async () => {
-      try {
-        const response = await reportService.getReasons()
-        if (response.success) {
-          setReportReasons(response.data)
-        }
-      } catch (err) {
-        console.error('Failed to load report reasons:', err)
-      } finally {
-        setLoadingReasons(false)
-      }
+  const [general, setGeneral] = useState(GENERAL_DEFAULTS)
+  const [security, setSecurity] = useState(SECURITY_DEFAULTS)
+
+  const fetchReasons = useCallback(async () => {
+    setLoadingReasons(true)
+    try {
+      const response = await reportService.getReasons()
+      if (response.success) setReportReasons(response.data)
+    } catch {
+      // Leave the list empty; the empty state explains it.
+    } finally {
+      setLoadingReasons(false)
     }
-    fetchReasons()
   }, [])
 
-  const handleAddReason = async () => {
-    if (!newReason.trim()) return
+  useEffect(() => {
+    fetchReasons()
+  }, [fetchReasons])
+
+  function updateGeneral(field, value) {
+    setGeneral((previous) => ({ ...previous, [field]: value }))
+  }
+
+  function updateSecurity(field, value) {
+    setSecurity((previous) => ({ ...previous, [field]: value }))
+  }
+
+  async function handleAddReason() {
+    const name = newReason.trim()
+    if (!name) return
+
     setError('')
+    setBusy(true)
     try {
-      const response = await reportService.createReason({ name: newReason.trim() })
+      const response = await reportService.createReason({ name })
       if (response.success) {
-        setReportReasons([...reportReasons, response.data])
+        setReportReasons((previous) => [...previous, response.data])
         setNewReason('')
       } else {
         setError(response.message || 'Failed to add reason')
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to add reason')
+    } finally {
+      setBusy(false)
     }
   }
 
-  const handleEditReason = (reason) => {
-    setEditingReason(reason)
-    setEditReasonName(reason.name)
-  }
+  async function handleSaveEdit() {
+    const name = editReasonName.trim()
+    if (!editingReason || !name) return
 
-  const handleSaveEdit = async () => {
-    if (!editingReason || !editReasonName.trim()) return
     setError('')
+    setBusy(true)
     try {
-      const response = await reportService.updateReason(editingReason.id, { name: editReasonName.trim() })
+      const response = await reportService.updateReason(editingReason.id, { name })
       if (response.success) {
-        setReportReasons(reportReasons.map(r => r.id === editingReason.id ? response.data : r))
+        setReportReasons((previous) =>
+          previous.map((reason) => (reason.id === editingReason.id ? response.data : reason))
+        )
         setEditingReason(null)
         setEditReasonName('')
       } else {
@@ -62,192 +109,268 @@ export default function AdminSettings() {
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to update reason')
+    } finally {
+      setBusy(false)
     }
   }
 
-  const handleDeleteReason = async (reasonId) => {
-    if (!window.confirm('Are you sure you want to delete this reason?')) return
+  async function handleDeleteReason() {
+    if (!deleteTarget) return
+
     setError('')
+    setBusy(true)
     try {
-      const response = await reportService.deleteReason(reasonId)
+      const response = await reportService.deleteReason(deleteTarget.id)
       if (response.success) {
-        setReportReasons(reportReasons.filter(r => r.id !== reasonId))
+        setReportReasons((previous) => previous.filter((reason) => reason.id !== deleteTarget.id))
       } else {
         setError(response.message || 'Failed to delete reason')
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete reason')
+    } finally {
+      setBusy(false)
+      setDeleteTarget(null)
     }
   }
 
   return (
-    <Container fluid className="main-content">
-      <div className="page-header">
-        <div>
-          <h1 className="h3 mb-0">Settings</h1>
-          <p className="text-muted mb-0">Configure system preferences and options</p>
-        </div>
+    <>
+      <PageHeader title="Settings" subtitle="Configure system preferences and options" />
+
+      {error && (
+        <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
+          {error}
+        </Alert>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* General */}
+        <Card>
+          <CardHeader>
+            <CardTitle>General</CardTitle>
+          </CardHeader>
+          <CardBody className="form-stack">
+            <Alert tone="neutral" className="mb-0">
+              These preferences are not yet persisted — they reset on reload.
+            </Alert>
+
+            <div className="form-grid">
+              <Input
+                label="System name"
+                value={general.systemName}
+                onChange={(event) => updateGeneral('systemName', event.target.value)}
+              />
+              <Input
+                label="Institution"
+                value={general.institution}
+                onChange={(event) => updateGeneral('institution', event.target.value)}
+              />
+              <Input
+                label="Submission time limit (minutes)"
+                type="number"
+                min="1"
+                max="120"
+                value={general.timeLimit}
+                onChange={(event) => updateGeneral('timeLimit', event.target.value)}
+              />
+              <Input
+                label="Max image size (MB)"
+                type="number"
+                min="1"
+                max="50"
+                value={general.maxImageSize}
+                onChange={(event) => updateGeneral('maxImageSize', event.target.value)}
+              />
+            </div>
+
+            <Input
+              label="Allowed image types"
+              value={general.imageTypes}
+              onChange={(event) => updateGeneral('imageTypes', event.target.value)}
+              hint="Comma-separated list of allowed file extensions"
+            />
+          </CardBody>
+        </Card>
+
+        {/* Security */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Security</CardTitle>
+          </CardHeader>
+          <CardBody className="divide-y divide-line">
+            <Switch
+              label="Require QR scan for submissions"
+              checked={security.requireQr}
+              onChange={(event) => updateSecurity('requireQr', event.target.checked)}
+            />
+            <Switch
+              label="Allow manual time entry"
+              description="Applies to Student Special accounts"
+              checked={security.allowManualTime}
+              onChange={(event) => updateSecurity('allowManualTime', event.target.checked)}
+            />
+            <Switch
+              label="Prevent duplicate submissions"
+              checked={security.preventDuplicates}
+              onChange={(event) => updateSecurity('preventDuplicates', event.target.checked)}
+            />
+            <Switch
+              label="Require image proof for reports"
+              checked={security.requireImageProof}
+              onChange={(event) => updateSecurity('requireImageProof', event.target.checked)}
+            />
+            <Switch
+              label="Enable in-app notifications"
+              checked={security.enableNotifications}
+              onChange={(event) => updateSecurity('enableNotifications', event.target.checked)}
+            />
+          </CardBody>
+        </Card>
+
+        {/* Report reasons */}
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Report reasons</CardTitle>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Predefined reasons students can pick when filing a report
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                handleAddReason()
+              }}
+              className="mb-4 flex gap-2"
+            >
+              <Input
+                aria-label="New reason"
+                placeholder="Reason name"
+                value={newReason}
+                onChange={(event) => setNewReason(event.target.value)}
+              />
+              <Button
+                type="submit"
+                variant="primary"
+                icon={biPlus}
+                loading={busy}
+                disabled={!newReason.trim()}
+                className="shrink-0"
+              >
+                Add
+              </Button>
+            </form>
+
+            {loadingReasons ? (
+              <SkeletonText lines={4} />
+            ) : reportReasons.length === 0 ? (
+              <p className="py-6 text-center text-sm text-ink-muted">
+                No reasons configured yet.
+              </p>
+            ) : (
+              <ul className="-mx-4 flex flex-col sm:-mx-5">
+                {reportReasons.map((reason) => (
+                  <li
+                    key={reason.id}
+                    className="flex min-w-0 items-center gap-2 border-b border-line px-4 py-2.5 last:border-b-0 sm:px-5"
+                  >
+                    {editingReason?.id === reason.id ? (
+                      <>
+                        <Input
+                          aria-label={`Edit ${reason.name}`}
+                          value={editReasonName}
+                          onChange={(event) => setEditReasonName(event.target.value)}
+                          className="h-9"
+                        />
+                        <ActionButton
+                          icon={biCheck}
+                          label="Save reason"
+                          tone="ok"
+                          disabled={busy || !editReasonName.trim()}
+                          onClick={handleSaveEdit}
+                        />
+                        <ActionButton
+                          icon={biX}
+                          label="Cancel edit"
+                          onClick={() => {
+                            setEditingReason(null)
+                            setEditReasonName('')
+                          }}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <span className="min-w-0 flex-1 truncate text-sm text-ink">{reason.name}</span>
+                        <div className="flex shrink-0 gap-1">
+                          <ActionButton
+                            icon={biPencil}
+                            label={`Edit ${reason.name}`}
+                            tone="accent"
+                            onClick={() => {
+                              setEditingReason(reason)
+                              setEditReasonName(reason.name)
+                            }}
+                          />
+                          <ActionButton
+                            icon={biTrash}
+                            label={`Delete ${reason.name}`}
+                            tone="bad"
+                            onClick={() => setDeleteTarget(reason)}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Maintenance */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Database &amp; maintenance</CardTitle>
+          </CardHeader>
+          <CardBody>
+            <Alert tone="warn" className="mb-4">
+              Maintenance actions are not wired up to the API yet.
+            </Alert>
+            <div className="flex flex-col gap-2">
+              <Button variant="secondary" icon="bi bi-arrow-repeat" disabled>
+                Rebuild compliance records
+              </Button>
+              <Button variant="secondary" icon="bi bi-arrow-repeat" disabled>
+                Refresh materialized views
+              </Button>
+              <Button variant="secondary" icon="bi bi-shield-check" disabled>
+                Verify RLS policies
+              </Button>
+              <Button variant="danger-outline" icon={biTrash} disabled>
+                Clean up old audit logs
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
       </div>
-      
-      {error && <Alert variant="danger" className="mb-4">{error}</Alert>}
-       
-      <Row className="g-3">
-        <Col lg={6}>
-          <Card className="shadow-sm border-0 h-100">
-            <CardHeader>
-              <h5 className="mb-0"><i className={`bi ${biGear} me-2`}></i>General Settings</h5>
-            </CardHeader>
-            <CardBody>
-              <Form>
-                <Row className="g-3">
-                  <Col md={6}>
-                    <Form.Label>System Name</Form.Label>
-                    <FormControl defaultValue="CTU Clean-Track-Update" />
-                  </Col>
-                  <Col md={6}>
-                    <Form.Label>Institution</Form.Label>
-                    <FormControl defaultValue="Cebu Technological University" />
-                  </Col>
-                  <Col md={6}>
-                    <Form.Label>Default Submission Time Limit (minutes)</Form.Label>
-                    <FormControl type="number" defaultValue="30" min="1" max="120" />
-                  </Col>
-                  <Col md={6}>
-                    <Form.Label>Max Image Size (MB)</Form.Label>
-                    <FormControl type="number" defaultValue="10" min="1" max="50" />
-                  </Col>
-                  <Col md={12}>
-                    <Form.Label>Allowed Image Types</Form.Label>
-                    <FormControl defaultValue="jpg, jpeg, png, webp" />
-                    <Form.Text>Comma-separated list of allowed file extensions</Form.Text>
-                  </Col>
-                </Row>
-              </Form>
-            </CardBody>
-          </Card>
-        </Col>
-        <Col lg={6}>
-          <Card className="shadow-sm border-0 h-100">
-            <CardHeader>
-              <h5 className="mb-0"><i className={`bi ${biShield} me-2`}></i>Security Settings</h5>
-            </CardHeader>
-            <CardBody>
-              <Form>
-                <Row className="g-3">
-                  <Col md={6}>
-                    <div className="form-check form-switch">
-                      <FormControl type="checkbox" id="requireQR" defaultChecked />
-                      <Form.Label className="form-check-label" htmlFor="requireQR">Require QR scan for submissions</Form.Label>
-                    </div>
-                  </Col>
-                  <Col md={6}>
-                    <div className="form-check form-switch">
-                      <FormControl type="checkbox" id="allowManualTime" defaultChecked />
-                      <Form.Label className="form-check-label" htmlFor="allowManualTime">Allow manual time entry (Student Special)</Form.Label>
-                    </div>
-                  </Col>
-                  <Col md={6}>
-                    <div className="form-check form-switch">
-                      <FormControl type="checkbox" id="preventDuplicates" defaultChecked />
-                      <Form.Label className="form-check-label" htmlFor="preventDuplicates">Prevent duplicate submissions</Form.Label>
-                    </div>
-                  </Col>
-                  <Col md={6}>
-                    <div className="form-check form-switch">
-                      <FormControl type="checkbox" id="requireImageProof" defaultChecked />
-                      <Form.Label className="form-check-label" htmlFor="requireImageProof">Require image proof for reports</Form.Label>
-                    </div>
-                  </Col>
-                  <Col md={6}>
-                    <div className="form-check form-switch">
-                      <FormControl type="checkbox" id="enableNotifications" defaultChecked />
-                      <Form.Label className="form-check-label" htmlFor="enableNotifications">Enable in-app notifications</Form.Label>
-                    </div>
-                  </Col>
-                </Row>
-              </Form>
-            </CardBody>
-          </Card>
-        </Col>
-        <Col lg={6}>
-          <Card className="shadow-sm border-0 h-100">
-            <CardHeader>
-              <h5 className="mb-0"><i className={`bi ${biBell} me-2`}></i>Report Reasons</h5>
-            </CardHeader>
-            <CardBody>
-              <p className="text-muted small mb-3">Manage predefined cleanliness report reasons</p>
-              <div className="mb-3">
-                <Form.Label>Add New Reason</Form.Label>
-                <InputGroup>
-                  <FormControl 
-                    placeholder="Reason name" 
-                    value={newReason}
-                    onChange={(e) => setNewReason(e.target.value)}
-                  />
-                  <Button variant="primary" onClick={handleAddReason} disabled={loadingReasons || !newReason.trim()}>
-                    <i className={`bi ${biPlus} me-1`}></i> Add
-                  </Button>
-                </InputGroup>
-              </div>
-              <div>
-                {loadingReasons ? (
-                  <div className="text-center py-3">
-                    <Spinner size="sm" />
-                  </div>
-                ) : (
-                  reportReasons.map((reason) => (
-                    <div key={reason.id} className="d-flex justify-content-between align-items-center p-2 border-bottom">
-                      {editingReason?.id === reason.id ? (
-                        <>
-                          <InputGroup style={{ width: '100%' }}>
-                            <FormControl
-                              value={editReasonName}
-                              onChange={(e) => setEditReasonName(e.target.value)}
-                            />
-                            <Button variant="success" size="sm" onClick={handleSaveEdit}>
-                              <i className={`bi ${biCheck}`}></i>
-                            </Button>
-                            <Button variant="secondary" size="sm" onClick={() => { setEditingReason(null); setEditReasonName(''); }}>
-                              <i className={`bi ${biX}`}></i>
-                            </Button>
-                          </InputGroup>
-                        </>
-                      ) : (
-                        <>
-                          <span>{reason.name}</span>
-                          <div className="btn-group btn-group-sm">
-                            <Button variant="outline-secondary" size="sm" onClick={() => handleEditReason(reason)}>
-                              <i className={`bi ${biPencil}`}></i>
-                            </Button>
-                            <Button variant="outline-danger" size="sm" onClick={() => handleDeleteReason(reason.id)}>
-                              <i className={`bi ${biTrash}`}></i>
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-        <Col lg={6}>
-          <Card className="shadow-sm border-0 h-100">
-            <CardHeader>
-              <h5 className="mb-0"><i className={`bi ${biDatabase} me-2`}></i>Database & Maintenance</h5>
-            </CardHeader>
-            <CardBody>
-              <div className="d-grid gap-2">
-                <Button variant="outline-secondary"><i className={`bi ${biArrowRepeat} me-2`}></i>Rebuild Compliance Records</Button>
-                <Button variant="outline-secondary"><i className={`bi ${biArrowRepeat} me-2`}></i>Refresh Materialized Views</Button>
-                <Button variant="outline-warning"><i className={`bi ${biShield} me-2`}></i>Verify RLS Policies</Button>
-                <Button variant="outline-danger"><i className={`bi ${biTrash} me-2`}></i>Clean Up Old Audit Logs</Button>
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-      </Row>
-    </Container>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteReason}
+        loading={busy}
+        title="Delete reason"
+        description={
+          deleteTarget
+            ? `Delete "${deleteTarget.name}"? Existing reports keep their recorded reason.`
+            : ''
+        }
+        confirmLabel="Delete reason"
+      />
+    </>
   )
 }
+

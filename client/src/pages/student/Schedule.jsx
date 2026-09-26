@@ -1,10 +1,35 @@
-import { Container, Card, CardBody, CardHeader, Table, Badge, Row, Col, Spinner } from 'react-bootstrap'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import { biCalendar, biClock, biDoorOpen, biPerson, biQRCode } from '../../utils/icons'
 import { scheduleService } from '../../services/scheduleService'
-
-const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+import { biCalendar, biDoorOpen, biPerson, biQRCode } from '../../utils/icons'
+import {
+  DAY_NAMES_LIST,
+  currentDayIndex,
+  dayName,
+  formatTime,
+  sectionLabel,
+} from '../../lib/format'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  IconTile,
+  PageHeader,
+  ScrollX,
+  SkeletonPage,
+  SkeletonTable,
+  TBody,
+  TD,
+  TH,
+  THead,
+  TR,
+  Table,
+} from '../../components/ui'
 
 export default function StudentSchedule() {
   const [schedules, setSchedules] = useState([])
@@ -12,145 +37,193 @@ export default function StudentSchedule() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    const fetchSchedule = async () => {
+    let cancelled = false
+
+    async function fetchSchedule() {
       try {
         const response = await scheduleService.getMySchedules()
-        console.log('Schedule response:', response)
-        console.log('First schedule item:', response.data?.[0])
+        if (cancelled) return
+
         if (response.success) {
           setSchedules(response.data || [])
         } else {
           setError(response.message || 'Failed to load schedule')
         }
       } catch (err) {
-        setError(err.response?.data?.message || 'Failed to load schedule')
+        if (!cancelled) setError(err.response?.data?.message || 'Failed to load schedule')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
+
     fetchSchedule()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const today = new Date().getDay()
+  const today = currentDayIndex()
+  const todaysClasses = useMemo(
+    () => schedules.filter((item) => item.day_of_week === today),
+    [schedules, today]
+  )
 
-  if (loading) {
-    return (
-      <Container fluid className="main-content">
-        <div className="page-header">
-          <div>
-            <h1 className="h3 mb-0">Schedule</h1>
-            <p className="text-muted mb-0">View your class schedule</p>
-          </div>
-        </div>
-        <div className="d-flex justify-content-center my-5">
-          <Spinner size="lg" />
-        </div>
-      </Container>
-    )
-  }
+  if (loading) return <SkeletonPage><SkeletonTable cols={5} rows={7} /></SkeletonPage>
 
   return (
-    <Container fluid className="main-content">
-      <div className="page-header">
-        <div>
-          <h1 className="h3 mb-0">Schedule</h1>
-          <p className="text-muted mb-0">View your class schedule</p>
-        </div>
-      </div>
-      
-      <Row className="g-3 mb-4">
-        {days.map((day, index) => (
-          <Col key={index} xs={6} md={4} lg={2}>
-            <Card className={`h-100 ${index === today ? 'border-primary' : ''}`}>
-              <CardBody className="text-center py-3">
-                <div className={`fw-bold ${index === today ? 'text-primary' : ''}`}>{day.substring(0, 3)}</div>
-                <div className={`small ${index === today ? 'text-primary' : 'text-muted'}`}>{day}</div>
-              </CardBody>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-      
-      <Card className="shadow-sm border-0">
-        <CardHeader>
-          <h5 className="mb-0">Weekly Schedule</h5>
-        </CardHeader>
-        <CardBody>
-          <div className="table-responsive">
-            <Table hover striped className="mb-0">
-              <thead>
-                <tr>
-                  <th>Day</th>
-                  <th>Time</th>
-                  <th>Subject</th>
-                  <th>Instructor</th>
-                  <th>Room</th>
-                  <th>Section</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {schedules.map((item) => (
-                  <tr key={item.id} className={item.day_of_week === today ? 'table-primary' : ''}>
-                    <td>
-                      <strong>{days[item.day_of_week]}</strong>
-                      {item.day_of_week === today && <Badge bg="primary" className="ms-2">Today</Badge>}
-                    </td>
-                    <td>{item.start_time} - {item.end_time}</td>
-                    <td>{item.subject_name}</td>
-                    <td>{item.instructor_name}</td>
-                    <td>{item.rooms?.room_name}</td>
-                    <td>{item.sections?.section_name ? `${item.sections.program} ${item.sections.year_level}${item.sections.section_name}` : 'N/A'}</td>
-                    <td><Badge bg="primary">Scheduled</Badge></td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </div>
-        </CardBody>
-      </Card>
-      
-      <Card className="shadow-sm border-0 mt-3">
-        <CardHeader>
-          <h5 className="mb-0">Today's Classes</h5>
-        </CardHeader>
-        <CardBody>
-          {schedules.filter(s => s.day_of_week === today).map((item) => (
-            <Card key={item.id} className="mb-2">
-              <CardBody className="py-3">
-                <Row className="align-items-center">
-                  <Col md={3} className="text-center text-md-start">
-                    <div className="bg-primary bg-gradient text-white rounded p-3">
-                      <div className="fw-bold">{item.start_time}</div>
-                      <small>{item.end_time}</small>
-                    </div>
-                  </Col>
-                  <Col md={6}>
-                    <h6 className="mb-1">{item.subject_name}</h6>
-                    <p className="mb-1 text-muted small">
-                      <i className={`bi ${biPerson} me-1`}></i> {item.instructor_name}
-                    </p>
-                    <p className="mb-0 text-muted small">
-                      <i className={`bi ${biDoorOpen} me-1`}></i> {item.rooms?.room_name}
-                    </p>
-                  </Col>
-                  <Col md={3} className="text-center text-md-end">
-                    <Link to="/student/scan" className="btn btn-primary">
-                      <i className={`bi ${biQRCode} me-1`}></i> Scan QR
-                    </Link>
-                  </Col>
-                </Row>
-              </CardBody>
-            </Card>
-          ))}
-          {schedules.filter(s => s.day_of_week === today).length === 0 && (
-            <div className="text-center py-4 text-muted">
-              <i className={`bi ${biCalendar} fs-1`}></i>
-              <p className="mt-2">No classes scheduled for today</p>
+    <>
+      <PageHeader title="Schedule" subtitle="Your weekly class schedule" />
+
+      {error && (
+        <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
+          {error}
+        </Alert>
+      )}
+
+      {/* Week strip */}
+      <div className="mb-6 grid grid-cols-4 gap-2 sm:grid-cols-7">
+        {DAY_NAMES_LIST.map((day, index) => {
+          const isToday = index === today
+          return (
+            <div
+              key={day}
+              aria-current={isToday ? 'date' : undefined}
+              className={
+                isToday
+                  ? 'rounded-md border border-accent bg-accent-soft px-2 py-3 text-center'
+                  : 'rounded-md border border-line bg-surface px-2 py-3 text-center'
+              }
+            >
+              <p
+                className={
+                  isToday
+                    ? 'text-sm font-semibold text-accent-ink'
+                    : 'text-sm font-medium text-ink-muted'
+                }
+              >
+                {day.slice(0, 3)}
+              </p>
+              <p className="mt-0.5 text-[0.6875rem] text-ink-subtle">
+                {schedules.some((item) => item.day_of_week === index)
+                  ? `${schedules.filter((item) => item.day_of_week === index).length} class${
+                      schedules.filter((item) => item.day_of_week === index).length > 1 ? 'es' : ''
+                    }`
+                  : '—'}
+              </p>
             </div>
-          )}
-        </CardBody>
+          )
+        })}
+      </div>
+
+      {/* Today's classes */}
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle>Today&rsquo;s classes</CardTitle>
+          <Badge tone="accent">{dayName(today)}</Badge>
+        </CardHeader>
+
+        {todaysClasses.length === 0 ? (
+          <EmptyState
+            icon={biCalendar}
+            title="No classes today"
+            description="You have no scheduled classes for today."
+          />
+        ) : (
+          <ul className="-mx-4 flex flex-col sm:-mx-5">
+            {todaysClasses.map((item) => (
+              <li
+                key={item.id}
+                className="flex flex-col gap-4 border-b border-line px-4 py-4 last:border-b-0 sm:flex-row sm:items-center sm:px-5"
+              >
+                <div className="shrink-0 rounded-md bg-accent-soft px-4 py-2.5 text-center sm:w-28">
+                  <p className="tabular text-sm font-semibold text-accent-ink">
+                    {formatTime(item.start_time)}
+                  </p>
+                  <p className="tabular mt-0.5 text-xs text-ink-muted">
+                    {formatTime(item.end_time)}
+                  </p>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink">{item.subject_name}</p>
+                  <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted">
+                    <span className="inline-flex items-center gap-1.5">
+                      <IconTile icon={biPerson} size="xs" />
+                      {item.instructor_name || '—'}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <IconTile icon={biDoorOpen} size="xs" />
+                      {item.rooms?.room_name || '—'}
+                    </span>
+                  </p>
+                </div>
+
+                <Button
+                  as={Link}
+                  to="/student/scan"
+                  variant="primary"
+                  icon={biQRCode}
+                  className="shrink-0"
+                >
+                  Scan QR
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
-    </Container>
+
+      {/* Full week */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Weekly schedule</CardTitle>
+          <p className="mt-0.5 text-xs text-ink-muted">{schedules.length} classes per week</p>
+        </CardHeader>
+
+        {schedules.length === 0 ? (
+          <EmptyState
+            icon={biCalendar}
+            title="No schedule yet"
+            description="Your section has no classes scheduled."
+          />
+        ) : (
+          <ScrollX minW="48rem">
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Day</TH>
+                  <TH>Time</TH>
+                  <TH>Subject</TH>
+                  <TH>Instructor</TH>
+                  <TH>Room</TH>
+                  <TH>Section</TH>
+                </tr>
+              </THead>
+              <TBody>
+                {schedules.map((item) => (
+                  <TR key={item.id} active={item.day_of_week === today}>
+                    <TD className="whitespace-nowrap font-medium">
+                      {dayName(item.day_of_week)}
+                      {item.day_of_week === today && (
+                        <Badge tone="accent" className="ms-2">
+                          Today
+                        </Badge>
+                      )}
+                    </TD>
+                    <TD className="tabular whitespace-nowrap">
+                      {formatTime(item.start_time)} – {formatTime(item.end_time)}
+                    </TD>
+                    <TD>{item.subject_name}</TD>
+                    <TD>{item.instructor_name || '—'}</TD>
+                    <TD>{item.rooms?.room_name || '—'}</TD>
+                    <TD className="text-ink-muted">{sectionLabel(item.sections)}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </ScrollX>
+        )}
+      </Card>
+    </>
   )
 }

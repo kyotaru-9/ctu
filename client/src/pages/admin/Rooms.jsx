@@ -1,26 +1,58 @@
-import { Container, Card, CardBody, CardHeader, Button, Table, Modal, Form, InputGroup, FormControl, Badge, Spinner, Alert, Row, Col } from 'react-bootstrap'
-import { useState, useEffect, useCallback } from 'react'
-import { biPlus, biSearch, biPencil, biTrash, biEye, biQRCode, biPrinter, biDownload, biArrowRepeat, biToggleOn, biToggleOff } from '../../utils/icons'
-import { roomService } from '../../services/roomService'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import QRCode from 'qrcode'
+import { roomService } from '../../services/roomService'
+import {
+  biArrowRepeat,
+  biDownload,
+  biPencil,
+  biPlus,
+  biPrinter,
+  biQRCode,
+  biToggleOff,
+  biToggleOn,
+  biTrash,
+} from '../../utils/icons'
+import {
+  ACTIVE_STATUS,
+  ActionButton,
+  Alert,
+  Button,
+  ConfirmDialog,
+  DetailList,
+  EmptyState,
+  Input,
+  Modal,
+  PageHeader,
+  RowActions,
+  ScrollX,
+  StatusBadge,
+  TBody,
+  TD,
+  TH,
+  THead,
+  TR,
+  Table,
+  TableCard,
+  Textarea,
+} from '../../components/ui'
+
+const BLANK_FORM = { room_code: '', room_name: '', building: '', floor: '', description: '' }
 
 export default function AdminRooms() {
+  const navigate = useNavigate()
   const [rooms, setRooms] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
-  const [showModal, setShowModal] = useState(false)
+  const [showForm, setShowForm] = useState(false)
   const [editingRoom, setEditingRoom] = useState(null)
-  const [showQR, setShowQR] = useState(null)
-  const [qrCodeDataUrl, setQrCodeDataUrl] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [qrRoom, setQrRoom] = useState(null)
+  const [qrDataUrl, setQrDataUrl] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
-  const [formData, setFormData] = useState({
-    room_code: '',
-    room_name: '',
-    building: '',
-    floor: '',
-    description: ''
-  })
+  const [formData, setFormData] = useState(BLANK_FORM)
 
   const fetchRooms = useCallback(async () => {
     setLoading(true)
@@ -43,69 +75,77 @@ export default function AdminRooms() {
   }, [fetchRooms])
 
   useEffect(() => {
-    if (showQR) {
-      const qrUrl = `${window.location.origin}/scan/${showQR.qr_token}`
-      QRCode.toDataURL(qrUrl, { width: 256, margin: 2 })
-        .then(url => setQrCodeDataUrl(url))
-        .catch(console.error)
-    } else {
-      setQrCodeDataUrl('')
+    if (!qrRoom) {
+      setQrDataUrl('')
+      return
     }
-  }, [showQR])
 
-  const filteredRooms = rooms.filter(r => 
-    r.room_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.room_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.building?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+    let cancelled = false
+    QRCode.toDataURL(`${window.location.origin}/scan/${qrRoom.qr_token}`, { width: 512, margin: 2 })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url)
+      })
+      .catch(() => {
+        if (!cancelled) setQrDataUrl('')
+      })
 
-  const handleOpenAddModal = () => {
-    setEditingRoom(null)
-    setFormData({
-      room_code: '',
-      room_name: '',
-      building: '',
-      floor: '',
-      description: ''
-    })
-    setShowModal(true)
+    return () => {
+      cancelled = true
+    }
+  }, [qrRoom])
+
+  const filteredRooms = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    if (!term) return rooms
+
+    return rooms.filter((room) =>
+      [room.room_code, room.room_name, room.building, room.floor]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(term))
+    )
+  }, [rooms, searchTerm])
+
+  function update(field, value) {
+    setFormData((previous) => ({ ...previous, [field]: value }))
   }
 
-  const handleOpenEditModal = (room) => {
+  function handleOpenAdd() {
+    setEditingRoom(null)
+    setFormData(BLANK_FORM)
+    setError('')
+    setShowForm(true)
+  }
+
+  function handleOpenEdit(room) {
     setEditingRoom(room)
     setFormData({
       room_code: room.room_code || '',
       room_name: room.room_name || '',
       building: room.building || '',
       floor: room.floor || '',
-      description: room.description || ''
+      description: room.description || '',
     })
-    setShowModal(true)
+    setError('')
+    setShowForm(true)
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  async function handleSubmit(event) {
+    event.preventDefault()
     setSubmitting(true)
     setError('')
 
     try {
-      if (editingRoom) {
-        const response = await roomService.update(editingRoom.id, formData)
-        if (response.success) {
-          fetchRooms()
-          setShowModal(false)
-        } else {
-          setError(response.message || 'Failed to update room')
-        }
-      } else {
-        const response = await roomService.create(formData)
-        if (response.success) {
-          fetchRooms()
-          setShowModal(false)
-        } else {
-          setError(response.message || 'Failed to create room')
-        }
+      const response = editingRoom
+        ? await roomService.update(editingRoom.id, formData)
+        : await roomService.create(formData)
+
+      if (!response.success) {
+        setError(response.message || 'Failed to save room')
+        return
       }
+
+      setShowForm(false)
+      await fetchRooms()
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save room')
     } finally {
@@ -113,216 +153,270 @@ export default function AdminRooms() {
     }
   }
 
-  const handleToggleStatus = async (room) => {
+  async function handleToggleStatus(room) {
     try {
       const response = await roomService.update(room.id, { is_active: !room.is_active })
-      if (response.success) {
-        fetchRooms()
-      }
-    } catch (err) {
-      console.error('Failed to toggle status:', err)
+      if (response.success) await fetchRooms()
+    } catch {
+      // Non-critical: list stays as-is until the next fetch.
     }
   }
 
-  const handleRegenerateQR = async (room) => {
+  async function handleRegenerateQR(room) {
     try {
       const response = await roomService.regenerateQR(room.id)
-      if (response.success) {
-        fetchRooms()
-      }
-    } catch (err) {
-      console.error('Failed to regenerate QR:', err)
+      if (response.success) await fetchRooms()
+    } catch {
+      // Non-critical: the existing QR stays valid.
     }
   }
 
-  const handleDelete = async () => {
-    if (!editingRoom) return
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
     try {
-      const response = await roomService.delete(editingRoom.id)
-      if (response.success) {
-        fetchRooms()
-      }
-    } catch (err) {
-      console.error('Failed to delete room:', err)
+      const response = await roomService.delete(deleteTarget.id)
+      if (response.success) await fetchRooms()
+    } catch {
+      // Ignore — the dialog closes either way.
     } finally {
-      setShowModal(false)
+      setDeleting(false)
+      setDeleteTarget(null)
     }
   }
 
-  if (loading) {
-    return (
-      <Container fluid className="main-content">
-        <div className="page-header">
-          <div>
-            <h1 className="h3 mb-0">Rooms</h1>
-            <p className="text-muted mb-0">Manage classrooms and QR codes</p>
-          </div>
-        </div>
-        <div className="d-flex justify-content-center my-5">
-          <Spinner size="lg" />
-        </div>
-      </Container>
-    )
+  function handleDownloadQR() {
+    if (!qrDataUrl) return
+    const link = document.createElement('a')
+    link.href = qrDataUrl
+    link.download = `QR_${qrRoom.room_code}.png`
+    link.click()
   }
 
   return (
-    <Container fluid className="main-content">
-      <div className="page-header">
-        <div>
-          <h1 className="h3 mb-0">Rooms</h1>
-          <p className="text-muted mb-0">Manage classrooms and QR codes</p>
-        </div>
-        <Button variant="primary" onClick={handleOpenAddModal}>
-          <i className={`bi ${biPlus} me-1`}></i> Add Room
-        </Button>
-      </div>
-      
-      <Card className="shadow-sm border-0">
-        <CardHeader className="d-flex justify-content-between align-items-center">
-          <h5 className="mb-0">Classrooms</h5>
-          <InputGroup style={{ maxWidth: '300px' }}>
-            <InputGroup.Text><i className={`bi ${biSearch}`}></i></InputGroup.Text>
-            <FormControl 
-              placeholder="Search rooms..." 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </InputGroup>
-        </CardHeader>
-        <CardBody>
-          {error && <Alert variant="danger" className="mb-3">{error}</Alert>}
-          <div className="table-responsive">
-            <Table hover striped className="mb-0">
-              <thead>
-                <tr>
-                  <th>Room Code</th>
-                  <th>Room Name</th>
-                  <th>Building</th>
-                  <th>Floor</th>
-                  <th>Status</th>
-                  <th>QR</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRooms.map((room) => (
-                  <tr key={room.id}>
-                    <td><strong>{room.room_code}</strong></td>
-                    <td>{room.room_name}</td>
-                    <td>{room.building}</td>
-                    <td>{room.floor}</td>
-                    <td><Badge bg={room.is_active ? 'success' : 'secondary'}>{room.is_active ? 'Active' : 'Inactive'}</Badge></td>
-                    <td>
-                      <Button variant="outline-primary" size="sm" onClick={() => setShowQR(room)}>
-                        <i className={`bi ${biQRCode} me-1`}></i> View QR
-                      </Button>
-                    </td>
-                    <td>
-                      <div className="btn-group btn-group-sm">
-                        <Button variant="outline-primary" onClick={() => handleOpenEditModal(room)} title="Edit"><i className={`bi ${biPencil}`}></i></Button>
-                        <Button variant="outline-info" onClick={() => setShowQR(room)} title="View QR"><i className={`bi ${biQRCode}`}></i></Button>
-                        <Button variant="outline-secondary" title="Print QR"><i className={`bi ${biPrinter}`}></i></Button>
-                        <Button variant="outline-secondary" title="Download QR"><i className={`bi ${biDownload}`}></i></Button>
-                        <Button variant="outline-warning" onClick={() => handleRegenerateQR(room)} title="Regenerate QR"><i className={`bi ${biArrowRepeat}`}></i></Button>
-                        <Button variant={room.is_active ? 'outline-danger' : 'outline-success'} onClick={() => handleToggleStatus(room)} title={room.is_active ? 'Deactivate' : 'Activate'}>
-                          <i className={`bi ${room.is_active ? biToggleOff : biToggleOn}`}></i>
-                        </Button>
-                        <Button variant="outline-danger" onClick={() => { setEditingRoom(room); setShowModal(true); }} title="Delete"><i className={`bi ${biTrash}`}></i></Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </div>
-        </CardBody>
-      </Card>
-      
-      <Modal show={showModal} onHide={() => setShowModal(false)} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>{editingRoom ? 'Edit Room' : 'Add Room'}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form onSubmit={handleSubmit} id="room-form">
-            {error && <Alert variant="danger" className="mb-3">{error}</Alert>}
-            <Row className="g-3">
-              <Col md={6}>
-                <Form.Label>Room Code <span className="text-danger">*</span></Form.Label>
-                <FormControl 
-                  value={formData.room_code} 
-                  onChange={(e) => setFormData(prev => ({ ...prev, room_code: e.target.value }))}
-                  required
-                  disabled={!!editingRoom}
-                />
-              </Col>
-              <Col md={6}>
-                <Form.Label>Room Name <span className="text-danger">*</span></Form.Label>
-                <FormControl 
-                  value={formData.room_name} 
-                  onChange={(e) => setFormData(prev => ({ ...prev, room_name: e.target.value }))}
-                  required
-                />
-              </Col>
-              <Col md={6}>
-                <Form.Label>Building</Form.Label>
-                <FormControl 
-                  value={formData.building} 
-                  onChange={(e) => setFormData(prev => ({ ...prev, building: e.target.value }))}
-                />
-              </Col>
-              <Col md={6}>
-                <Form.Label>Floor</Form.Label>
-                <FormControl 
-                  value={formData.floor} 
-                  onChange={(e) => setFormData(prev => ({ ...prev, floor: e.target.value }))}
-                />
-              </Col>
-              <Col md={12}>
-                <Form.Label>Description</Form.Label>
-                <FormControl 
-                  as="textarea" 
-                  rows={3}
-                  value={formData.description} 
-                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                />
-              </Col>
-            </Row>
-          </Form>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowModal(false)}>Cancel</Button>
-          <Button variant="primary" disabled={submitting} type="submit" form="room-form">
-            {submitting ? <Spinner size="sm" /> : (editingRoom ? 'Update' : 'Create')}
+    <>
+      <PageHeader
+        title="Rooms"
+        subtitle="Manage classrooms and their QR codes"
+        actions={
+          <Button variant="primary" icon={biPlus} onClick={handleOpenAdd}>
+            Add room
           </Button>
-        </Modal.Footer>
+        }
+      />
+
+      {error && !showForm && (
+        <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
+          {error}
+        </Alert>
+      )}
+
+      <TableCard
+        title="Classrooms"
+        subtitle={`${filteredRooms.length} of ${rooms.length} shown`}
+        search={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search code, name, building…"
+        loading={loading}
+        isEmpty={filteredRooms.length === 0}
+        empty={
+          <EmptyState
+            icon="bi-door-open"
+            title="No rooms found"
+            description={
+              searchTerm
+                ? 'No rooms match your search.'
+                : 'Add a classroom to generate its QR code.'
+            }
+          />
+        }
+      >
+        <ScrollX minW="52rem">
+          <Table>
+            <THead>
+              <tr>
+                <TH>Code</TH>
+                <TH>Room</TH>
+                <TH>Building</TH>
+                <TH>Floor</TH>
+                <TH>Status</TH>
+                <TH align="right">Actions</TH>
+              </tr>
+            </THead>
+            <TBody>
+              {filteredRooms.map((room) => (
+                <TR key={room.id}>
+                  <TD className="tabular font-medium">{room.room_code}</TD>
+                  <TD>{room.room_name}</TD>
+                  <TD>{room.building || '—'}</TD>
+                  <TD className="tabular">{room.floor || '—'}</TD>
+                  <TD>
+                    <StatusBadge map={ACTIVE_STATUS} value={String(Boolean(room.is_active))} />
+                  </TD>
+                  <TD align="right">
+                    <RowActions label={`Actions for room ${room.room_code}`}>
+                      <ActionButton
+                        icon={biPencil}
+                        label="Edit room"
+                        tone="accent"
+                        onClick={() => handleOpenEdit(room)}
+                      />
+                      <ActionButton
+                        icon={biQRCode}
+                        label="View QR code"
+                        onClick={() => setQrRoom(room)}
+                      />
+                      <ActionButton
+                        icon={biArrowRepeat}
+                        label="Regenerate QR code"
+                        tone="accent"
+                        onClick={() => handleRegenerateQR(room)}
+                      />
+                      <ActionButton
+                        icon={room.is_active ? biToggleOff : biToggleOn}
+                        label={room.is_active ? 'Deactivate room' : 'Activate room'}
+                        tone={room.is_active ? 'bad' : 'ok'}
+                        onClick={() => handleToggleStatus(room)}
+                      />
+                      <ActionButton
+                        icon={biTrash}
+                        label="Delete room"
+                        tone="bad"
+                        onClick={() => setDeleteTarget(room)}
+                      />
+                    </RowActions>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        </ScrollX>
+      </TableCard>
+
+      {/* Add / edit */}
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title={editingRoom ? 'Edit room' : 'Add room'}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowForm(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" form="room-form" loading={submitting}>
+              {editingRoom ? 'Update room' : 'Create room'}
+            </Button>
+          </>
+        }
+      >
+        <form id="room-form" onSubmit={handleSubmit} noValidate className="form-stack">
+          {error && <Alert tone="bad">{error}</Alert>}
+
+          <div className="form-grid">
+            <Input
+              label="Room code"
+              required
+              value={formData.room_code}
+              onChange={(event) => update('room_code', event.target.value)}
+              disabled={Boolean(editingRoom)}
+              hint={editingRoom ? 'Room code cannot be changed' : undefined}
+            />
+            <Input
+              label="Room name"
+              required
+              value={formData.room_name}
+              onChange={(event) => update('room_name', event.target.value)}
+            />
+            <Input
+              label="Building"
+              value={formData.building}
+              onChange={(event) => update('building', event.target.value)}
+            />
+            <Input
+              label="Floor"
+              value={formData.floor}
+              onChange={(event) => update('floor', event.target.value)}
+            />
+          </div>
+
+          <Textarea
+            label="Description"
+            value={formData.description}
+            onChange={(event) => update('description', event.target.value)}
+          />
+        </form>
       </Modal>
-      
-      <Modal show={!!showQR} onHide={() => { setShowQR(null); setQrCodeDataUrl(''); }} size="lg" centered>
-        <Modal.Header closeButton>
-          <Modal.Title>QR Code - {showQR?.room_name}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body className="text-center">
-          <div className="qr-display">
-            {qrCodeDataUrl ? (
-              <img src={qrCodeDataUrl} alt={`QR Code for ${showQR?.room_code}`} style={{ width: '256px', height: '256px' }} />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        loading={deleting}
+        title="Delete room"
+        description={
+          deleteTarget
+            ? `Delete ${deleteTarget.room_name} (${deleteTarget.room_code})? Its QR code will stop working immediately. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete room"
+      />
+
+      {/* QR preview */}
+      <Modal
+        open={Boolean(qrRoom)}
+        onClose={() => setQrRoom(null)}
+        title="Room QR code"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setQrRoom(null)}>
+              Close
+            </Button>
+            <Button
+              variant="accent-outline"
+              icon={biPrinter}
+              onClick={() => navigate(`/admin/qr-print/${qrRoom?.id}`)}
+            >
+              Print sheet
+            </Button>
+            <Button
+              variant="primary"
+              icon={biDownload}
+              onClick={handleDownloadQR}
+              disabled={!qrDataUrl}
+            >
+              Download
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col items-center text-center">
+          <div className="qr-frame mb-5 w-full">
+            {qrDataUrl ? (
+              <img
+                src={qrDataUrl}
+                alt={`QR code for room ${qrRoom?.room_code}`}
+                className="h-auto w-full max-w-64"
+              />
             ) : (
-              <div className="bg-light d-inline-flex align-items-center justify-content-center" style={{ width: '256px', height: '256px' }}>
-                <span className="text-muted">Generating QR...</span>
+              <div className="grid aspect-square w-full max-w-64 place-items-center rounded-md bg-surface-sunken text-sm text-ink-muted">
+                Generating…
               </div>
             )}
-            <div className="mt-3">
-              <h6>{showQR?.room_name}</h6>
-              <p className="text-muted mb-1">Code: {showQR?.room_code}</p>
-              <p className="text-muted small mb-0">{showQR?.building}, Floor {showQR?.floor}</p>
-            </div>
           </div>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => { setShowQR(null); setQrCodeDataUrl(''); }}>Close</Button>
-          <Button variant="outline-secondary"><i className={`bi ${biPrinter} me-1`}></i> Print</Button>
-          <Button variant="outline-primary"><i className={`bi ${biDownload} me-1`}></i> Download</Button>
-        </Modal.Footer>
+
+          <DetailList
+            columns={1}
+            className="w-full text-start"
+            items={[
+              { label: 'Room', value: qrRoom?.room_name },
+              { label: 'Code', value: qrRoom?.room_code },
+              { label: 'Location', value: [qrRoom?.building, qrRoom?.floor && `Floor ${qrRoom.floor}`].filter(Boolean).join(', ') },
+            ]}
+          />
+        </div>
       </Modal>
-    </Container>
+    </>
   )
 }
+

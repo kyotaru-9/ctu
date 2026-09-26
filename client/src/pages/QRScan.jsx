@@ -1,146 +1,153 @@
-import { Container, Card, CardBody, Button, Alert, Spinner } from 'react-bootstrap'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import { biQRCode, biBuilding, biDoorOpen, biArrowRight, biLock, biInfo } from '../utils/icons'
-import api from '../services/api'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import api from '../services/api'
+import { biBuilding, biLock, biQRCode } from '../utils/icons'
+import {
+  Alert,
+  Button,
+  Card,
+  CardBody,
+  DetailList,
+  IconTile,
+  SkeletonCard,
+} from '../components/ui'
+
+const DASHBOARD_BY_ROLE = {
+  admin: '/admin/dashboard',
+  student: '/student/dashboard',
+  student_special: '/special/dashboard',
+}
 
 export default function QRScan() {
   const { qrToken } = useParams()
   const navigate = useNavigate()
-  const { user, loading: authLoading } = useAuth()
+  const { user } = useAuth()
   const [room, setRoom] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    const fetchRoom = async () => {
+    let cancelled = false
+
+    async function fetchRoom() {
       try {
         const response = await api.get(`/rooms/qr/${qrToken}`)
+        if (cancelled) return
+
         if (response.data.success) {
           setRoom(response.data.data)
         } else {
           setError('Invalid or inactive QR code')
         }
       } catch (err) {
-        setError(err.response?.data?.message || 'Failed to load room information')
+        if (!cancelled) {
+          setError(err.response?.data?.message || 'Failed to load room information')
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
+
     fetchRoom()
+    return () => {
+      cancelled = true
+    }
   }, [qrToken])
 
-  const handleLogin = () => {
+  function handleLogin() {
     navigate('/login', { state: { from: { pathname: `/scan/${qrToken}` } } })
   }
 
-  const handleProceed = () => {
-    if (user) {
-      if (user.role === 'admin') {
-        navigate(`/admin/qr-print/${room.id}`)
-      } else if (user.role === 'student') {
-        navigate('/student/submit', { state: { room } })
-      } else if (user.role === 'student_special') {
-        navigate('/special/before')
-      }
-    } else {
-      handleLogin()
-    }
+  function handleProceed() {
+    if (!user) return handleLogin()
+
+    if (user.role === 'admin') navigate(`/admin/qr-print/${room.id}`)
+    else if (user.role === 'student') navigate('/student/submit', { state: { room } })
+    else navigate('/special/before')
   }
 
   if (loading) {
     return (
-      <Container fluid className="d-flex align-items-center justify-content-center vh-100">
-        <div className="text-center">
-          <Spinner size="lg" />
-          <p className="mt-3 text-muted">Loading room information...</p>
-        </div>
-      </Container>
+      <div className="flex min-h-dvh items-center justify-center bg-canvas px-4">
+        <SkeletonCard className="w-full max-w-xs" />
+      </div>
     )
   }
 
   if (error) {
     return (
-      <Container fluid className="d-flex align-items-center justify-content-center vh-100">
-        <Card className="shadow-sm border-0" style={{ maxWidth: '400px' }}>
-          <CardBody className="text-center p-5">
-            <div className="bg-danger bg-gradient rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style={{ width: '80px', height: '80px' }}>
-              <i className={`bi bi-x-circle text-white`} style={{ fontSize: '2.5rem' }}></i>
-            </div>
-            <h4 className="mb-2">Invalid QR Code</h4>
-            <p className="text-muted mb-4">{error}</p>
-            <Button variant="outline-primary" onClick={() => navigate('/')}>
-              Go to Home
+      <div className="flex min-h-dvh items-center justify-center bg-canvas px-4 py-10">
+        <Card className="w-full max-w-sm text-center">
+          <CardBody className="p-6">
+            <IconTile icon="bi bi-x-circle" tone="bad" size="lg" className="mx-auto mb-5" />
+            <h1 className="text-base font-semibold text-ink">Invalid QR code</h1>
+            <p className="mt-2 text-sm text-ink-muted">{error}</p>
+            <Button variant="accent-outline" block className="mt-6" onClick={() => navigate('/')}>
+              Go to home
             </Button>
           </CardBody>
         </Card>
-      </Container>
+      </div>
     )
   }
 
-  if (!room) {
-    return null
-  }
+  if (!room) return null
 
   return (
-    <Container fluid className="main-content">
-      <Row className="justify-content-center">
-        <Col lg={6}>
-          <Card className="shadow-sm border-0">
-            <CardBody className="text-center p-5">
-              <div className="bg-primary bg-gradient rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style={{ width: '80px', height: '80px' }}>
-                <i className={`bi ${biBuilding} text-white`} style={{ fontSize: '2.5rem' }}></i>
-              </div>
-              
-              <h2 className="mb-1">CTU CLEAN-TRACK-UPDATE</h2>
-              <p className="text-muted mb-4">Classroom Cleanliness Monitoring System</p>
-              
-              <Card className="bg-light mb-4">
-                <CardBody>
-                  <div className="row g-3 text-start">
-                    <Col md={6}>
-                      <strong>Room:</strong> {room.room_name}
-                    </Col>
-                    <Col md={6}>
-                      <strong>Code:</strong> {room.room_code}
-                    </Col>
-                    <Col md={6}>
-                      <strong>Building:</strong> {room.building}
-                    </Col>
-                    <Col md={6}>
-                      <strong>Floor:</strong> {room.floor}
-                    </Col>
-                  </div>
-                </CardBody>
-              </Card>
-              
-              {user ? (
-                <div className="d-grid gap-2">
-                  <Button variant="primary" size="lg" onClick={handleProceed}>
-                    <i className={`bi ${biArrowRight} me-1`}></i> 
-                    {user.role === 'admin' ? 'View Room Details' : 'Submit Room Condition'}
-                  </Button>
-                  <Button variant="outline-secondary" onClick={() => navigate(user.role === 'admin' ? '/admin/dashboard' : user.role === 'student' ? '/student/dashboard' : '/special/dashboard')}>
-                    Go to Dashboard
-                  </Button>
-                </div>
-              ) : (
-                <Alert variant="info">
-                  <i className={`bi ${biLock} me-2`}></i>
-                  Please log in to submit room condition or view details.
-                </Alert>
-              )}
-              
-              <div className="mt-4">
-                <Button variant="outline-secondary" onClick={handleLogin}>
-                  <i className={`bi ${biLock} me-1`}></i> Log In
+    <div className="flex min-h-dvh items-center justify-center bg-canvas px-4 py-10">
+      <div className="w-full max-w-md">
+        <div className="mb-6 text-center">
+          <IconTile icon={biBuilding} tone="accent" size="lg" className="mx-auto mb-4" />
+          <h1 className="text-lg font-semibold tracking-tight text-ink">CTU Clean-Track</h1>
+          <p className="mt-1 text-sm text-ink-muted">Classroom cleanliness monitoring</p>
+        </div>
+
+        <Card>
+          <CardBody className="p-5 sm:p-6">
+            <div className="rounded-lg border border-line bg-surface-sunken p-4">
+              <DetailList
+                columns={2}
+                items={[
+                  { label: 'Room', value: room.room_name },
+                  { label: 'Code', value: room.room_code },
+                  { label: 'Building', value: room.building },
+                  { label: 'Floor', value: room.floor },
+                ]}
+              />
+            </div>
+
+            <div className="mt-5 flex flex-col gap-2">
+              <Button variant="primary" size="lg" block iconEnd="bi-arrow-right" onClick={handleProceed}>
+                {user ? (user.role === 'admin' ? 'View room details' : 'Submit room condition') : 'Log in to continue'}
+              </Button>
+
+              {user && (
+                <Button variant="secondary" block onClick={() => navigate(DASHBOARD_BY_ROLE[user.role])}>
+                  Go to dashboard
                 </Button>
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-      </Row>
-    </Container>
+              )}
+            </div>
+
+            {!user && (
+              <Alert tone="neutral" icon={biLock} className="mt-4">
+                Log in to submit this room&apos;s condition or view its details.
+              </Alert>
+            )}
+          </CardBody>
+        </Card>
+
+        <p className="mt-6 text-center">
+          <button
+            type="button"
+            onClick={handleLogin}
+            className="inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
+          >
+            <i className={biQRCode} aria-hidden="true" />
+            Already have an account? Sign in
+          </button>
+        </p>
+      </div>
+    </div>
   )
 }

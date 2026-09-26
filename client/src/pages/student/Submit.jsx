@@ -1,400 +1,313 @@
-import { Container, Card, CardBody, CardHeader, Button, Form, Alert, Spinner, ProgressBar, Row, Col, Badge, ListGroup, ListGroupItem } from 'react-bootstrap'
-import { useState, useEffect } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { biCamera, biArrowLeft, biCheckCircle, biXCircle, biCloudUpload, biArrowRight, biArrowLeft as biArrowLeftIcon, biCalendar, biClock, biDoorOpen, biPerson } from '../../utils/icons'
+import { useEffect, useState } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { CameraCapture, PhotoPreview } from '../../components/camera/CameraCapture'
 import { submissionService } from '../../services/submissionService'
-import { authService } from '../../services/authService'
-import { scheduleService } from '../../services/scheduleService'
-import { CameraCapture, PhotoPreview } from '../../components/camera/CameraCapture.jsx'
+import { formatTime, sectionLabel } from '../../lib/format'
+import {
+  Alert,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+  CONDITION,
+  DetailList,
+  IconTile,
+  PageHeader,
+  Progress,
+  SegmentedControl,
+  StatusBadge,
+  StepIndicator,
+  Textarea,
+} from '../../components/ui'
 
-// Steps: 1=type/condition, 2=camera, 3=preview, 4=success
 const STEPS = {
-  TYPE_CONDITION: 1,
-  CAMERA: 2,
-  PREVIEW: 3,
-  SUCCESS: 4
+  TYPE_CONDITION: 'TYPE_CONDITION',
+  CAMERA: 'CAMERA',
+  PREVIEW: 'PREVIEW',
 }
+
+const STEP_LIST = [
+  { key: STEPS.TYPE_CONDITION, label: 'Details' },
+  { key: STEPS.CAMERA, label: 'Photo' },
+  { key: STEPS.PREVIEW, label: 'Review' },
+]
 
 export default function StudentSubmit() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [room, setRoom] = useState(location.state?.room || null)
-  const [schedule, setSchedule] = useState(location.state?.schedule || null)
-  const [schedules, setSchedules] = useState([])
-  const [loadingSchedules, setLoadingSchedules] = useState(false)
-  
-  // Early return if no room - prevents accessing room.id before redirect
-  if (!room) {
-    // Redirect to scan page
-    useEffect(() => {
-      navigate('/student/scan')
-    }, [navigate])
-    return null
-  }
-  
-  // Fetch schedules for this room if not already provided
-  useEffect(() => {
-    if (!schedule && room) {
-      loadSchedulesForRoom()
-    }
-  }, [room, schedule])
-  
-  const loadSchedulesForRoom = async () => {
-    setLoadingSchedules(true)
-    try {
-      const response = await scheduleService.getSchedulesByRoom(room.id)
-      if (response.success) {
-        setSchedules(response.data || [])
-      }
-    } catch (err) {
-      console.error('Failed to load schedules:', err)
-    } finally {
-      setLoadingSchedules(false)
-    }
-  }
-  
-  const handleScheduleSelect = (selectedSchedule) => {
-    setSchedule(selectedSchedule)
-  }
-  
-  // Form data
+
+  const room = location.state?.room ?? null
+  const schedule = location.state?.schedule ?? null
+
   const [submissionType, setSubmissionType] = useState('before')
   const [condition, setCondition] = useState('clean')
   const [notes, setNotes] = useState('')
-  
-  // Photo state
-  const [capturedBlob, setCapturedBlob] = useState(null)
-  const [imagePreview, setImagePreview] = useState(null)
-  
-  // Flow state
+
+  const [photo, setPhoto] = useState(null)
+  const [photoPreview, setPhotoPreview] = useState(null)
+
   const [step, setStep] = useState(STEPS.TYPE_CONDITION)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState('')
-  
-  // Computed
-  const isBefore = submissionType === 'before'
-  const isStudentRole = authService.getUserRole() === 'student'
+  const [done, setDone] = useState(false)
 
-  // Set condition based on submission type and schedule
-  useEffect(() => {
-    if (schedule) {
-      setSubmissionType('before')
-      setCondition('clean')
-    }
-  }, [schedule])
-
-  // Reset captured photo when going back to camera step
+  // Discard a stale photo whenever the user returns to the camera step.
   useEffect(() => {
     if (step === STEPS.CAMERA) {
-      setCapturedBlob(null)
-      setImagePreview(null)
+      setPhoto(null)
+      setPhotoPreview(null)
       setError('')
     }
   }, [step])
 
-  const handlePhotoCaptured = (blob, dataUrl) => {
-    setCapturedBlob(blob)
-    setImagePreview(dataUrl)
+  // No room means the user arrived without scanning — send them back.
+  if (!room) return <Navigate to="/student/scan" replace />
+
+  const isBefore = submissionType === 'before'
+
+  function handlePhotoCaptured(file) {
+    setPhoto(file)
+    setPhotoPreview(URL.createObjectURL(file))
     setStep(STEPS.PREVIEW)
   }
 
-  const handleRetake = () => {
-    setCapturedBlob(null)
-    setImagePreview(null)
+  function handleRetake() {
+    if (photoPreview) URL.revokeObjectURL(photoPreview)
+    setPhoto(null)
+    setPhotoPreview(null)
     setStep(STEPS.CAMERA)
   }
 
-  const handleCancel = () => {
-    setCapturedBlob(null)
-    setImagePreview(null)
+  function handleCancel() {
+    if (photoPreview) URL.revokeObjectURL(photoPreview)
+    setPhoto(null)
+    setPhotoPreview(null)
     setStep(STEPS.TYPE_CONDITION)
   }
 
-  const handleSubmit = async () => {
-    console.log('handleSubmit called');
-    console.log('capturedBlob:', capturedBlob);
-    console.log('room:', room);
-    console.log('schedule:', schedule);
-    console.log('submissionType:', submissionType);
-    
-    if (!capturedBlob) {
-      setError('Please capture a photo')
+  async function handleSubmit() {
+    if (!photo) {
+      setError('Please capture a photo first.')
       return
     }
-    if (!room) {
-      setError('Room not found. Please scan the QR code again.')
-      return
-    }
-    
+
     setUploading(true)
     setUploadProgress(0)
     setError('')
-    
+
     try {
       const formData = new FormData()
-      formData.append('image', capturedBlob)
+      formData.append('image', photo)
       formData.append('room_id', room.id)
       formData.append('submission_type', submissionType)
       formData.append('condition', condition)
       formData.append('notes', notes)
-      if (schedule) {
-        formData.append('schedule_id', schedule.id)
+      if (schedule) formData.append('schedule_id', schedule.id)
+
+      const onProgress = (event) => {
+        if (event.total) {
+          setUploadProgress(Math.round((event.loaded * 100) / event.total))
+        }
       }
-      
-      // Log FormData contents
-      console.log('FormData entries:');
-      for (let [key, value] of formData.entries()) {
-        console.log(`  ${key}:`, value);
-      }
-      
-      const onProgress = (progressEvent) => {
-        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-        setUploadProgress(percent)
-      }
-      
-      const response = isBefore 
+
+      const response = isBefore
         ? await submissionService.submitBefore(formData, onProgress)
         : await submissionService.submitAfter(formData, onProgress)
-      
-      console.log('Submit response:', response);
-      
+
       if (response.success) {
-        setStep(STEPS.SUCCESS)
+        setDone(true)
       } else {
-        setError(response.message || 'Submission failed')
+        setError(response.message || 'Submission failed. Please try again.')
       }
     } catch (err) {
-      console.error('Submit error:', err);
-      console.error('Error response:', err.response?.data);
-      setError(err.response?.data?.message || 'Failed to submit')
+      setError(err.response?.data?.message || 'Failed to submit. Please try again.')
     } finally {
       setUploading(false)
     }
   }
 
-  const handleDone = () => {
-    navigate('/student/dashboard')
-  }
-
-  if (step === STEPS.SUCCESS) {
+  if (done) {
     return (
-      <Container fluid className="main-content">
-        <div className="page-header">
-          <div>
-            <h1 className="h3 mb-0">Submission Complete</h1>
-          </div>
-        </div>
-        <Row className="justify-content-center">
-          <Col lg={6}>
-            <Card className="shadow-sm border-0">
-              <CardBody className="text-center p-5">
-                <div className="bg-success bg-gradient rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style={{ width: '80px', height: '80px' }}>
-                  <i className={`bi ${biCheckCircle} text-white`} style={{ fontSize: '2.5rem' }}></i>
-                </div>
-                <h4 className="mb-2">{isBefore ? 'Before' : 'After'} Submission Successful</h4>
-                <p className="text-muted mb-4">Your room condition photo has been recorded.</p>
-                <div className="mb-4">
-                  <strong>Room:</strong> {room?.room_name} ({room?.room_code})<br />
-                  {schedule && <><strong>Subject:</strong> {schedule.subject_name}<br /><strong>Section:</strong> {schedule.sections?.program} {schedule.sections?.year_level}{schedule.sections?.section_name}<br /></>}
-                  <strong>Type:</strong> {isBefore ? 'Before Class' : 'After Class'}<br />
-                  <strong>Condition:</strong> {condition}
-                </div>
-                <Button variant="primary" size="lg" onClick={handleDone}>
-                  <i className={`bi ${biCheckCircle} me-1`}></i> Done
-                </Button>
-              </CardBody>
-            </Card>
-          </Col>
-        </Row>
-      </Container>
-    )
-  }
+      <>
+        <PageHeader title="Submission complete" />
+        <Card className="mx-auto max-w-lg">
+          <CardBody className="flex flex-col items-center p-6 text-center sm:p-8">
+            <IconTile icon="bi bi-check-lg" tone="ok" size="lg" className="mb-5" />
+            <h2 className="text-base font-semibold text-ink">
+              {isBefore ? 'Before' : 'After'} submission recorded
+            </h2>
+            <p className="mt-1.5 mb-6 text-sm text-ink-muted">
+              Your room condition photo has been saved.
+            </p>
 
-  const renderStepIndicator = () => (
-    <Row className="mb-4">
-      {Object.values(STEPS).slice(0, 3).map((s) => (
-        <Col key={s} className="text-center">
-          <div className="d-flex flex-column align-items-center">
-            <div className={`step-circle mx-auto mb-2 ${s < step ? 'completed' : s === step ? 'active' : ''}`}>
-              {s < step ? <i className="bi bi-check fs-6" /> : s}
+            <div className="mb-6 w-full rounded-md border border-line bg-surface-sunken p-4 text-start">
+              <DetailList
+                columns={1}
+                items={[
+                  { label: 'Room', value: `${room.room_name} (${room.room_code})` },
+                  schedule && { label: 'Subject', value: schedule.subject_name },
+                  schedule && { label: 'Section', value: sectionLabel(schedule.sections) },
+                  { label: 'Type', value: isBefore ? 'Before class' : 'After class' },
+                  { label: 'Condition', value: <StatusBadge map={CONDITION} value={condition} /> },
+                ]}
+              />
             </div>
-            <small className={s === step ? 'fw-bold text-primary' : 'text-muted'}>
-              {s === STEPS.TYPE_CONDITION && 'Type & Condition'}
-              {s === STEPS.CAMERA && 'Take Photo'}
-              {s === STEPS.PREVIEW && 'Preview'}
-            </small>
-          </div>
-        </Col>
-      ))}
-    </Row>
-  )
 
-  const renderStepContent = () => {
-    switch (step) {
-      case STEPS.TYPE_CONDITION:
-        return (
-          <div>
-            <div className="mb-4">
-              <Form.Label>Submission Type</Form.Label>
-              <div className="btn-group w-100" role="group">
-                <Button
-                  type="button"
-                  variant={isBefore ? 'primary' : 'outline-primary'}
-                  onClick={() => { setSubmissionType('before'); setCondition('clean'); }}
-                >
-                  <i className={`bi ${biCamera} me-1`}></i> Before Class
-                </Button>
-                <Button
-                  type="button"
-                  variant={!isBefore ? 'primary' : 'outline-primary'}
-                  onClick={() => { setSubmissionType('after'); setCondition('clean'); }}
-                >
-                  <i className={`bi ${biCamera} me-1`}></i> After Class
-                </Button>
-              </div>
-            </div>
-            
-            <div className="mb-4">
-              <Form.Label>Room Condition</Form.Label>
-              <div className="btn-group w-100" role="group">
-                <Button
-                  type="button"
-                  variant={condition === 'clean' ? 'success' : 'outline-success'}
-                  onClick={() => setCondition('clean')}
-                >
-                  <i className={`bi ${biCheckCircle} me-1`}></i> Clean
-                </Button>
-                <Button
-                  type="button"
-                  variant={condition === 'not_clean' ? 'danger' : 'outline-danger'}
-                  onClick={() => setCondition('not_clean')}
-                >
-                  <i className={`bi ${biXCircle} me-1`}></i> Not Clean
-                </Button>
-              </div>
-            </div>
-            
-            <div className="mb-4">
-              <Form.Label>Notes (Optional)</Form.Label>
-              <Form.Control as="textarea" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Additional observations..." />
-            </div>
-            
-            <Button variant="primary" size="lg" onClick={() => setStep(STEPS.CAMERA)}>
-              <i className={`bi ${biArrowRight} me-1`}></i> Continue
+            <Button variant="primary" size="lg" block onClick={() => navigate('/student/dashboard')}>
+              Done
             </Button>
-          </div>
-        )
-      
-      case STEPS.CAMERA:
-        return (
-          <div>
-            {error && <Alert variant="danger" className="mb-3">{error}</Alert>}
-            
-            <CameraCapture
-              key={`camera-${step}`}
-              onCapture={handlePhotoCaptured}
-              facingMode="environment"
-              placeholder="Take a photo of the room condition"
-              autoStart={true}
-            />
-            
-            <div className="mt-4 d-flex gap-2">
-              <Button variant="outline-secondary" onClick={() => setStep(STEPS.TYPE_CONDITION)}>
-                <i className={`bi ${biArrowLeftIcon} me-1`}></i> Back
-              </Button>
-            </div>
-          </div>
-        )
-      
-      case STEPS.PREVIEW:
-        return (
-          <div>
-            {error && <Alert variant="danger" className="mb-3">{error}</Alert>}
-            
-            <PhotoPreview
-              dataUrl={imagePreview}
-              onRetake={handleRetake}
-              onCancel={handleCancel}
-              onSubmit={handleSubmit}
-              title="Photo Preview"
-            />
-          </div>
-        )
-      
-      default:
-        return null
-    }
-  }
-
-  if (!room) {
-    return null
+          </CardBody>
+        </Card>
+      </>
+    )
   }
 
   return (
     <>
-      <Container fluid className="main-content">
-        <div className="page-header">
-          <div>
-            <Link to="/student/scan" className="btn btn-outline-secondary">
-              <i className={`bi ${biArrowLeftIcon} me-1`}></i> Back
-            </Link>
-          </div>
-          <div className="mt-2">
-            <h1 className="h3 mb-0">Submit Room Condition</h1>
-          </div>
-        </div>
-        
-        {renderStepIndicator()}
-        
-        <Row className="justify-content-center">
-          <Col lg={8}>
-            <Card className="shadow-sm border-0 mb-4">
-              <CardBody>
-                <div className="row g-3 mb-4">
-                  <Col md={6}>
-                    <strong>Room:</strong> {room?.room_name}
-                  </Col>
-                  <Col md={6}>
-                    <strong>Code:</strong> {room?.room_code}
-                  </Col>
-                  <Col md={6}>
-                    <strong>Building:</strong> {room?.building}
-                  </Col>
-                  <Col md={6}>
-                    <strong>Floor:</strong> {room?.floor}
-                  </Col>
-                  {schedule && (
-                    <>
-                      <Col md={6}>
-                        <strong>Subject:</strong> {schedule.subject_name}
-                      </Col>
-                      <Col md={6}>
-                        <strong>Instructor:</strong> {schedule.instructor_name}
-                      </Col>
-                      <Col md={6}>
-                        <strong>Time:</strong> {schedule.start_time} - {schedule.end_time}
-                      </Col>
-                      <Col md={6}>
-                        <strong>Section:</strong> {schedule.sections?.program} {schedule.sections?.year_level}{schedule.sections?.section_name}
-                      </Col>
-                    </>
-                  )}
+      <PageHeader
+        title="Submit room condition"
+        subtitle={`${room.room_name} · ${room.room_code}`}
+        actions={
+          <Link
+            to="/student/scan"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted transition-colors hover:text-ink"
+          >
+            <i className="bi bi-arrow-left" aria-hidden="true" />
+            Back to scan
+          </Link>
+        }
+      />
+
+      <StepIndicator steps={STEP_LIST} current={step} />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-1">
+          <CardHeader>
+            <CardTitle>Session</CardTitle>
+          </CardHeader>
+          <CardBody>
+            <DetailList
+              columns={1}
+              items={[
+                { label: 'Room', value: room.room_name },
+                { label: 'Code', value: room.room_code },
+                { label: 'Building', value: room.building },
+                { label: 'Floor', value: room.floor },
+                schedule && { label: 'Subject', value: schedule.subject_name },
+                schedule && { label: 'Instructor', value: schedule.instructor_name },
+                schedule && {
+                  label: 'Time',
+                  value: `${formatTime(schedule.start_time)} – ${formatTime(schedule.end_time)}`,
+                },
+                schedule && { label: 'Section', value: sectionLabel(schedule.sections) },
+              ]}
+            />
+          </CardBody>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Submission details</CardTitle>
+          </CardHeader>
+          <CardBody>
+            {error && (
+              <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
+                {error}
+              </Alert>
+            )}
+
+            {step === STEPS.TYPE_CONDITION && (
+              <div className="form-stack">
+                <div>
+                  <p className="mb-2 text-[0.8125rem] font-medium text-ink">Submission type</p>
+                  <SegmentedControl
+                    name="submission-type"
+                    columns={2}
+                    value={submissionType}
+                    onChange={(value) => {
+                      setSubmissionType(value)
+                      setCondition('clean')
+                    }}
+                    options={[
+                      { value: 'before', label: 'Before class', icon: 'bi bi-camera-fill' },
+                      { value: 'after', label: 'After class', icon: 'bi bi-clipboard-check' },
+                    ]}
+                  />
                 </div>
-                
-                <Card className="shadow-sm border-0 mb-4">
-                  <CardHeader>
-                    <h5 className="mb-0">Submission Details</h5>
-                  </CardHeader>
-                  <CardBody>
-                    {renderStepContent()}
-                  </CardBody>
-                </Card>
-              </CardBody>
-            </Card>
-          </Col>
-        </Row>
-      </Container>
+
+                <div>
+                  <p className="mb-2 text-[0.8125rem] font-medium text-ink">Room condition</p>
+                  <SegmentedControl
+                    name="condition"
+                    columns={2}
+                    value={condition}
+                    onChange={setCondition}
+                    options={[
+                      { value: 'clean', label: 'Clean', icon: 'bi bi-check-lg' },
+                      { value: 'not_clean', label: 'Not clean', icon: 'bi bi-x-lg' },
+                    ]}
+                  />
+                </div>
+
+                <Textarea
+                  label="Notes (optional)"
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="Anything worth noting about the room…"
+                />
+
+                <Button
+                  variant="primary"
+                  size="lg"
+                  iconEnd="bi bi-arrow-right"
+                  onClick={() => setStep(STEPS.CAMERA)}
+                  block
+                >
+                  Continue
+                </Button>
+              </div>
+            )}
+
+            {step === STEPS.CAMERA && (
+              <div>
+                <CameraCapture onCapture={handlePhotoCaptured} autoStart />
+                <Button
+                  variant="ghost"
+                  icon="bi bi-arrow-left"
+                  onClick={() => setStep(STEPS.TYPE_CONDITION)}
+                  className="mt-5"
+                >
+                  Back
+                </Button>
+              </div>
+            )}
+
+            {step === STEPS.PREVIEW && (
+              <div>
+                <PhotoPreview
+                  dataUrl={photoPreview}
+                  alt={`${isBefore ? 'Before' : 'After'} condition for ${room.room_name}`}
+                  onRetake={handleRetake}
+                  onCancel={handleCancel}
+                  onConfirm={handleSubmit}
+                  busy={uploading}
+                />
+
+                {uploading && (
+                  <div className="mx-auto mt-6 w-full max-w-sm">
+                    <Progress value={uploadProgress} label="Upload progress" />
+                    <p className="tabular mt-2 text-center text-xs text-ink-muted">
+                      Uploading {uploadProgress}%
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
     </>
   )
 }

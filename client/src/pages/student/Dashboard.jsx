@@ -1,13 +1,41 @@
-import { Container, Row, Col, Card, CardBody, CardHeader, Button, Badge, ListGroup, ListGroupItem, Spinner } from 'react-bootstrap'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useState, useEffect } from 'react'
-import { biCalendar, biQRCode, biCamera, biExclamation, biClockHistory, biCheckCircle, biClock, biGraph, biDoorOpen } from '../../utils/icons'
+import { reportService } from '../../services/reportService'
 import { scheduleService } from '../../services/scheduleService'
 import { submissionService } from '../../services/submissionService'
-import { reportService } from '../../services/reportService'
-
-const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+import {
+  biCalendar,
+  biCamera,
+  biCheckCircle,
+  biClock,
+  biClockHistory,
+  biDoorOpen,
+  biExclamation,
+  biGraph,
+  biQRCode,
+} from '../../utils/icons'
+import { formatDateTime, formatTime, todayIso, welcomeText } from '../../lib/format'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+  ComplianceRing,
+  EmptyState,
+  IconTile,
+  SkeletonCards,
+  SkeletonPage,
+  SkeletonPanel,
+  PageHeader,
+  REPORT_STATUS,
+  StatCard,
+  StatGrid,
+  StatusBadge,
+} from '../../components/ui'
 
 export default function StudentDashboard() {
   const { user } = useAuth()
@@ -19,303 +47,289 @@ export default function StudentDashboard() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    let cancelled = false
+
+    async function fetchDashboardData() {
       try {
         const today = new Date().getDay()
         const [scheduleRes, submissionsRes, reportsRes] = await Promise.all([
           scheduleService.getMySchedules(),
           submissionService.getMySubmissions(),
-          reportService.getMyReports({ limit: 5 })
+          reportService.getMyReports({ limit: 5 }),
         ])
+        if (cancelled) return
 
-        console.log('Dashboard scheduleRes:', scheduleRes)
-        console.log('Dashboard submissionsRes:', submissionsRes)
-        console.log('Dashboard reportsRes:', reportsRes)
-
-        if (scheduleRes.success) {
-          const allSchedules = scheduleRes.data || []
-          setTodaysSchedule(allSchedules.filter(s => s.day_of_week === today))
-        }
+        const allSchedules = scheduleRes.success ? scheduleRes.data || [] : []
+        setTodaysSchedule(allSchedules.filter((item) => item.day_of_week === today))
 
         if (submissionsRes.success) {
           const submissions = submissionsRes.data || []
-          const todayStr = new Date().toISOString().split('T')[0]
-          const todaysSubmissions = submissions.filter(s => 
-            s.submitted_at && s.submitted_at.startsWith(todayStr)
+          const todayStr = todayIso()
+          const todaysSubmissions = submissions.filter(
+            (item) => item.submitted_at && item.submitted_at.startsWith(todayStr)
           )
-          const before = todaysSubmissions.find(s => s.submission_type === 'before')
-          const after = todaysSubmissions.find(s => s.submission_type === 'after')
-          setSubmissionStatus({ before, after })
-          
-          // Calculate compliance from submissions
-          const totalExpected = allSchedules.length * 2 // before + after for each class
-          const totalSubmitted = submissions.filter(s => 
-            s.submitted_at && s.submitted_at.startsWith(todayStr)
-          ).length
-          setCompliance(totalExpected > 0 ? Math.round((totalSubmitted / totalExpected) * 100) : 0)
+
+          setSubmissionStatus({
+            before: todaysSubmissions.find((item) => item.submission_type === 'before') ?? null,
+            after: todaysSubmissions.find((item) => item.submission_type === 'after') ?? null,
+          })
+
+          const totalExpected = allSchedules.length * 2
+          setCompliance(
+            totalExpected > 0 ? Math.round((todaysSubmissions.length / totalExpected) * 100) : 0
+          )
         }
 
-        if (reportsRes.success) {
-          setRecentReports(reportsRes.data || [])
-        }
+        if (reportsRes.success) setRecentReports(reportsRes.data || [])
       } catch (err) {
-        setError(err.response?.data?.message || 'Failed to load dashboard')
+        if (!cancelled) setError(err.response?.data?.message || 'Failed to load dashboard')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchDashboardData()
+    return () => {
+      cancelled = true
+    }
   }, [])
+
+  const currentRoom = useMemo(
+    () => todaysSchedule[0]?.rooms ?? todaysSchedule[0]?.room ?? null,
+    [todaysSchedule]
+  )
 
   if (loading) {
     return (
-      <Container fluid className="main-content">
-        <div className="page-header">
-          <div>
-            <h1 className="h3 mb-0">Dashboard</h1>
-            <p className="text-muted mb-0">Welcome, {user?.section?.section_name || 'Section'}</p>
-          </div>
+      <SkeletonPage>
+        <SkeletonCards count={4} columns={4} className="mb-6" />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <SkeletonPanel lines={7} className="lg:col-span-2" />
+          <SkeletonPanel lines={4} />
+          <SkeletonPanel lines={4} />
+          <SkeletonPanel lines={4} />
+          <SkeletonPanel lines={6} className="lg:col-span-2" />
+          <SkeletonPanel lines={3} />
         </div>
-        <div className="d-flex justify-content-center my-5">
-          <Spinner size="lg" />
-        </div>
-      </Container>
+      </SkeletonPage>
     )
   }
 
-  const today = new Date().getDay()
-
   return (
-    <Container fluid className="main-content">
-      <div className="page-header">
-        <div>
-          <h1 className="h3 mb-0">Dashboard</h1>
-          <p className="text-muted mb-0">Welcome, {user?.section?.section_name || 'Section'}</p>
-        </div>
+    <>
+      <PageHeader
+        title="Dashboard"
+        subtitle={welcomeText(user)}
+      />
+
+      {error && (
+        <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
+          {error}
+        </Alert>
+      )}
+
+      <StatGrid columns={4} className="mb-6">
+        <StatCard
+          label="Today's classes"
+          value={todaysSchedule.length}
+          icon={biCalendar}
+          tone="accent"
+        />
+        <StatCard
+          label="Before submitted"
+          value={submissionStatus.before ? 1 : 0}
+          icon={biCheckCircle}
+          tone={submissionStatus.before ? 'ok' : 'neutral'}
+        />
+        <StatCard
+          label="After pending"
+          value={submissionStatus.after ? 0 : 1}
+          icon={biClock}
+          tone={submissionStatus.after ? 'ok' : 'warn'}
+        />
+        <StatCard label="Compliance" value={`${compliance}%`} icon={biGraph} tone="info" />
+      </StatGrid>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Today's schedule */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Today&rsquo;s schedule</CardTitle>
+            <Link
+              to="/student/schedule"
+              className="text-sm font-medium text-accent transition-opacity hover:opacity-75"
+            >
+              View all
+            </Link>
+          </CardHeader>
+
+          {todaysSchedule.length === 0 ? (
+            <EmptyState
+              compact
+              icon={biCalendar}
+              title="No classes today"
+              description="You have no scheduled classes for today."
+            />
+          ) : (
+            <ul className="-mx-4 flex flex-col sm:-mx-5">
+              {todaysSchedule.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3.5 last:border-b-0 sm:px-5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink">{item.subject_name}</p>
+                    <p className="mt-0.5 truncate text-xs text-ink-muted">
+                      {item.instructor_name || '—'} · {item.rooms?.room_name || '—'}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2.5">
+                    <span className="tabular text-sm text-ink">
+                      {formatTime(item.start_time)} – {formatTime(item.end_time)}
+                    </span>
+                    <Badge tone="accent">Scheduled</Badge>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* Current room */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Current room</CardTitle>
+          </CardHeader>
+          <CardBody className="flex flex-col items-center text-center">
+            <IconTile
+              icon={biDoorOpen}
+              tone={currentRoom ? 'accent' : 'neutral'}
+              size="lg"
+              className="mb-4"
+            />
+            {currentRoom ? (
+              <>
+                <p className="text-base font-semibold text-ink">{currentRoom.room_name}</p>
+                <p className="tabular mt-1 text-sm text-ink-muted">{currentRoom.room_code}</p>
+                <p className="mt-0.5 text-xs text-ink-subtle">
+                  {[currentRoom.building, currentRoom.floor && `Floor ${currentRoom.floor}`]
+                    .filter(Boolean)
+                    .join(', ')}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-ink-muted">No class scheduled</p>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Submission status */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Today&rsquo;s submissions</CardTitle>
+          </CardHeader>
+          <CardBody>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { key: 'before', label: 'Before', record: submissionStatus.before },
+                { key: 'after', label: 'After', record: submissionStatus.after },
+              ].map(({ key, label, record }) => (
+                <div
+                  key={key}
+                  className="rounded-md border border-line bg-surface-sunken p-4 text-center"
+                >
+                  <IconTile
+                    icon={biCamera}
+                    tone={record ? 'ok' : 'neutral'}
+                    size="sm"
+                    className="mx-auto mb-3"
+                  />
+                  <p className="text-sm font-medium text-ink">{label}</p>
+                  <p className="mt-1.5">
+                    <Badge tone={record ? 'ok' : 'warn'}>
+                      {record ? 'Completed' : 'Pending'}
+                    </Badge>
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardBody>
+        </Card>
+
+        {/* Quick actions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Quick actions</CardTitle>
+          </CardHeader>
+          <CardBody className="flex flex-col gap-2">
+            <Button as={Link} to="/student/scan" variant="primary" size="lg" icon={biQRCode} block>
+              Scan room QR
+            </Button>
+            <Button as={Link} to="/student/submit" variant="accent-outline" icon={biCamera} block>
+              Submit room condition
+            </Button>
+            <Button as={Link} to="/student/reports" variant="secondary" icon={biExclamation} block>
+              Report a problem
+            </Button>
+            <Button as={Link} to="/student/history" variant="ghost" icon={biClockHistory} block>
+              View history
+            </Button>
+          </CardBody>
+        </Card>
+
+        {/* Recent reports */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Recent reports</CardTitle>
+            <Link
+              to="/student/reports"
+              className="text-sm font-medium text-accent transition-opacity hover:opacity-75"
+            >
+              View all
+            </Link>
+          </CardHeader>
+
+          {recentReports.length === 0 ? (
+            <EmptyState
+              compact
+              icon={biExclamation}
+              title="No reports filed"
+              description="Reports you file about a room will appear here."
+            />
+          ) : (
+            <ul className="-mx-4 flex flex-col sm:-mx-5">
+              {recentReports.map((report) => (
+                <li
+                  key={report.id}
+                  className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3.5 last:border-b-0 sm:px-5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-ink">
+                      {report.reason?.name || report.other_reason || 'Report'} in{' '}
+                      {report.room?.room_code || '—'}
+                    </p>
+                    <p className="mt-0.5 text-xs text-ink-muted">
+                      {formatDateTime(report.reported_at)}
+                    </p>
+                  </div>
+                  <StatusBadge map={REPORT_STATUS} value={report.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* Compliance */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Compliance</CardTitle>
+          </CardHeader>
+          <CardBody className="flex flex-col items-center text-center">
+            <ComplianceRing value={compliance} />
+            <p className="mt-4 text-sm text-ink-muted">Section compliance rate</p>
+          </CardBody>
+        </Card>
       </div>
-      
-      <Row className="g-3 mb-4">
-        <Col md={3}>
-          <Card className="stat-card border-0 shadow-sm">
-            <CardBody className="d-flex align-items-center">
-              <div className="stat-icon bg-primary bg-gradient text-white me-3">
-                <i className={`bi ${biCalendar}`}></i>
-              </div>
-              <div>
-                <div className="fw-bold fs-3">{todaysSchedule.length}</div>
-                <div className="text-muted small">Today's Classes</div>
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-        <Col md={3}>
-          <Card className="stat-card border-0 shadow-sm">
-            <CardBody className="d-flex align-items-center">
-              <div className="stat-icon bg-success bg-gradient text-white me-3">
-                <i className={`bi ${biCheckCircle}`}></i>
-              </div>
-              <div>
-                <div className="fw-bold fs-3">{submissionStatus.before ? 1 : 0}</div>
-                <div className="text-muted small">Completed Before</div>
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-        <Col md={3}>
-          <Card className="stat-card border-0 shadow-sm">
-            <CardBody className="d-flex align-items-center">
-              <div className="stat-icon bg-warning bg-gradient text-dark me-3">
-                <i className={`bi ${biClock}`}></i>
-              </div>
-              <div>
-                <div className="fw-bold fs-3">{submissionStatus.after ? 0 : 1}</div>
-                <div className="text-muted small">Pending After</div>
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-        <Col md={3}>
-          <Card className="stat-card border-0 shadow-sm">
-            <CardBody className="d-flex align-items-center">
-              <div className="stat-icon bg-info bg-gradient text-white me-3">
-                <i className={`bi ${biGraph}`}></i>
-              </div>
-              <div>
-                <div className="fw-bold fs-3">{compliance}%</div>
-                <div className="text-muted small">Compliance</div>
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-      </Row>
-      
-      <Row className="g-3 mb-4">
-        <Col lg={8}>
-          <Card className="shadow-sm border-0 h-100">
-            <CardHeader className="d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">Today's Schedule</h5>
-              <Link to="/student/schedule" className="btn btn-sm btn-outline-primary">View All</Link>
-            </CardHeader>
-            <CardBody>
-              {todaysSchedule.length > 0 ? (
-                <ListGroup flush>
-                  {todaysSchedule.map((item) => (
-                    <ListGroupItem key={item.id} className="d-flex justify-content-between align-items-center">
-                      <div>
-                        <div className="fw-medium">{item.subject_name}</div>
-                        <small className="text-muted">{item.instructor_name} • {item.rooms?.room_name}</small>
-                      </div>
-                      <div className="text-end">
-                        <div className="fw-medium">{item.start_time} - {item.end_time}</div>
-                        <Badge bg="primary">Scheduled</Badge>
-                      </div>
-                    </ListGroupItem>
-                  ))}
-                </ListGroup>
-              ) : (
-                <div className="text-center py-4 text-muted">
-                  <i className={`bi ${biCalendar} fs-1`}></i>
-                  <p className="mt-2">No classes scheduled for today</p>
-                </div>
-              )}
-            </CardBody>
-          </Card>
-        </Col>
-        <Col lg={4}>
-          <Card className="shadow-sm border-0 h-100">
-            <CardHeader>
-              <h5 className="mb-0">Current Room</h5>
-            </CardHeader>
-            <CardBody>
-              <div className="text-center py-3">
-                {todaysSchedule.length > 0 ? (
-                  <>
-                    <div className="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style={{ width: '80px', height: '80px' }}>
-                      <i className={`bi ${biDoorOpen} text-primary`} style={{ fontSize: '2rem' }}></i>
-                    </div>
-                    <h5>{todaysSchedule[0].rooms?.room_name}</h5>
-                    <p className="text-muted small">{todaysSchedule[0].rooms?.room_code}</p>
-                    <p className="text-muted small">{todaysSchedule[0].rooms?.building}, Floor {todaysSchedule[0].rooms?.floor}</p>
-                  </>
-                ) : (
-                  <>
-                    <div className="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style={{ width: '80px', height: '80px' }}>
-                      <i className={`bi ${biDoorOpen} text-muted`} style={{ fontSize: '2rem' }}></i>
-                    </div>
-                    <h5 className="text-muted">No class scheduled</h5>
-                  </>
-                )}
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-      </Row>
-      
-      <Row className="g-3 mb-4">
-        <Col lg={6}>
-          <Card className="shadow-sm border-0 h-100">
-            <CardHeader>
-              <h5 className="mb-0">Today's Submission Status</h5>
-            </CardHeader>
-            <CardBody>
-              <div className="d-flex gap-3">
-                <div className="flex-grow-1 text-center p-3 bg-light rounded">
-                  <i className={`bi ${biCamera} ${submissionStatus.before ? 'text-success' : 'text-muted'} fs-1`}></i>
-                  <div className="fw-bold mt-1">Before</div>
-                  <Badge bg={submissionStatus.before ? 'success' : 'secondary'}>
-                    {submissionStatus.before ? 'Completed' : 'Pending'}
-                  </Badge>
-                </div>
-                <div className="flex-grow-1 text-center p-3 bg-light rounded">
-                  <i className={`bi ${biCamera} ${submissionStatus.after ? 'text-success' : 'text-warning'} fs-1`}></i>
-                  <div className="fw-bold mt-1">After</div>
-                  <Badge bg={submissionStatus.after ? 'success' : 'warning'}>
-                    {submissionStatus.after ? 'Completed' : 'Pending'}
-                  </Badge>
-                </div>
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-        <Col lg={6}>
-          <Card className="shadow-sm border-0 h-100">
-            <CardHeader>
-              <h5 className="mb-0">Quick Actions</h5>
-            </CardHeader>
-            <CardBody>
-              <div className="d-grid gap-2">
-                <Link to="/student/scan" className="btn btn-primary">
-                  <i className={`bi ${biQRCode} me-2`}></i> Scan Room QR
-                </Link>
-                <Link to="/student/submit" className="btn btn-outline-primary">
-                  <i className={`bi ${biCamera} me-2`}></i> Submit Room Condition
-                </Link>
-                <Link to="/student/reports" className="btn btn-outline-warning">
-                  <i className={`bi ${biExclamation} me-2`}></i> Report Room Problem
-                </Link>
-                <Link to="/student/history" className="btn btn-outline-secondary">
-                  <i className={`bi ${biClockHistory} me-2`}></i> View History
-                </Link>
-              </div>
-            </CardBody>
-          </Card>
-        </Col>
-      </Row>
-      
-      <Row className="g-3">
-        <Col lg={6}>
-          <Card className="shadow-sm border-0">
-            <CardHeader>
-              <h5 className="mb-0">Recent Reports</h5>
-            </CardHeader>
-            <CardBody>
-              {recentReports.length > 0 ? (
-                <ListGroup flush>
-                  {recentReports.map((report) => (
-                    <ListGroupItem key={report.id}>
-                      <div className="d-flex justify-content-between">
-                        <div>
-                          <div className="fw-medium">{report.reason?.name} in {report.room?.room_code}</div>
-                          <small className="text-muted">{report.reported_at ? new Date(report.reported_at).toLocaleString() : ''}</small>
-                        </div>
-                        <Badge bg={report.status === 'pending' ? 'warning' : report.status === 'resolved' ? 'success' : 'secondary'}>
-                          {report.status}
-                        </Badge>
-                      </div>
-                    </ListGroupItem>
-                  ))}
-                </ListGroup>
-              ) : (
-                <div className="text-center py-4 text-muted">
-                  <i className={`bi ${biExclamation} fs-1`}></i>
-                  <p className="mt-2">No recent reports</p>
-                </div>
-              )}
-            </CardBody>
-          </Card>
-        </Col>
-        <Col lg={6}>
-          <Card className="shadow-sm border-0">
-            <CardHeader>
-              <h5 className="mb-0">Section Compliance</h5>
-            </CardHeader>
-            <CardBody className="text-center py-4">
-              <div className="mb-3">
-                <svg width="120" height="120" className="transform" style={{ transform: 'rotate(-90deg)' }}>
-                  <circle cx="60" cy="60" r="50" fill="none" stroke="#e9ecef" strokeWidth="10" />
-                  <circle cx="60" cy="60" r="50" fill="none" stroke="#198754" strokeWidth="10" 
-                    strokeDasharray="314" strokeDashoffset={314 - (314 * compliance / 100)} strokeLinecap="round" />
-                </svg>
-                <div className="position-absolute top-50 start-50 translate-middle">
-                  <div className="fw-bold fs-2">{compliance}%</div>
-                </div>
-              </div>
-              <p className="text-muted mb-0">Section Compliance Rate</p>
-            </CardBody>
-          </Card>
-        </Col>
-      </Row>
-    </Container>
+    </>
   )
 }

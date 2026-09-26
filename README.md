@@ -4,7 +4,7 @@ Classroom cleanliness monitoring and reporting system for Cebu Technological Uni
 
 ## Tech Stack
 
-- **Frontend**: React 18 + Vite + React Router + Bootstrap 5 + React-Bootstrap
+ - **Frontend**: React 18 + Vite + React Router + Tailwind CSS 4
 - **Backend**: Express.js + Node.js
 - **Database/Auth/Storage**: Supabase (PostgreSQL)
 - **QR Code**: html5-qrcode (scanner) + qrcode (generator)

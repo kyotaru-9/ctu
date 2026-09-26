@@ -3,6 +3,47 @@ import { supabaseAdmin } from '../config/supabase.js'
 
 const router = Router()
 
+const SECTION_COLUMNS = 'id, program, year_level, section_name'
+
+/**
+ * Loads a profile row together with its section, exposed to the client as
+ * `user.section`.
+ *
+ * The section is fetched with a second query rather than an embedded
+ * `sections(...)` select on purpose: `profiles` has no foreign-key relationship
+ * to `sections` for PostgREST to embed, so `select('*, sections(...)')` fails
+ * the whole query and the profile lookup reports "not found" for every login.
+ * `maybeSingle` keeps a null or dangling `section_id` from becoming an error —
+ * an account with no section still signs in, it just has no section label.
+ */
+async function loadProfile(authUserId) {
+  const { data: profile, error } = await supabaseAdmin
+    .from('profiles')
+    .select('*')
+    .eq('auth_user_id', authUserId)
+    .single()
+
+  if (error || !profile) return { profile: null, error }
+
+  if (!profile.section_id) return { profile: { ...profile, section: null } }
+
+  const { data: section, error: sectionError } = await supabaseAdmin
+    .from('sections')
+    .select(SECTION_COLUMNS)
+    .eq('id', profile.section_id)
+    .maybeSingle()
+
+  if (sectionError) {
+    console.log('[Server] Section lookup failed for profile', profile.id, '-', sectionError.message)
+  }
+
+  return { profile: { ...profile, section: section ?? null } }
+}
+
+function toSessionUser(id, email, profile) {
+  return profile ? { id, email, ...profile } : { id, email }
+}
+
 router.post('/login', async (req, res, next) => {
   try {
     const { email, password } = req.body
@@ -31,11 +72,7 @@ router.post('/login', async (req, res, next) => {
       })
     }
     
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .eq('auth_user_id', data.user.id)
-      .single()
+    const { profile, error: profileError } = await loadProfile(data.user.id)
     
     if (profileError || !profile) {
       console.log('[Server] Login failed: Profile not found for', data.user.id)
@@ -64,11 +101,7 @@ router.post('/login', async (req, res, next) => {
       data: {
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token,
-        user: {
-          id: data.user.id,
-          email: data.user.email,
-          ...profile
-        }
+        user: toSessionUser(data.user.id, data.user.email, profile)
       }
     })
   } catch (error) {
@@ -117,22 +150,14 @@ router.post('/refresh', async (req, res, next) => {
     }
     
     // Get updated profile
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .eq('auth_user_id', data.user.id)
-      .single()
+    const { profile } = await loadProfile(data.user.id)
     
     res.json({
       success: true,
       data: {
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token,
-        user: {
-          id: data.user.id,
-          email: data.user.email,
-          ...profile
-        }
+        user: toSessionUser(data.user.id, data.user.email, profile)
       }
     })
   } catch (error) {
@@ -162,11 +187,7 @@ router.get('/me', async (req, res, next) => {
       })
     }
     
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .eq('auth_user_id', user.id)
-      .single()
+    const { profile, error: profileError } = await loadProfile(user.id)
     
     if (profileError || !profile) {
       return res.status(401).json({
@@ -178,11 +199,7 @@ router.get('/me', async (req, res, next) => {
     
     res.json({
       success: true,
-      data: {
-        id: user.id,
-        email: user.email,
-        ...profile
-      }
+      data: toSessionUser(user.id, user.email, profile)
     })
   } catch (error) {
     next(error)

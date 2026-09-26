@@ -1,289 +1,189 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Button, Alert, Spinner } from 'react-bootstrap'
-import { biCamera, biCheckCircle, biXCircle } from '../../utils/icons'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Alert, Button } from '../ui'
 
-// CameraCapture Component - Live camera feed with capture functionality
-export function CameraCapture({ onCapture, facingMode = 'environment', placeholder = 'Take a photo', autoStart = false }) {
+function friendlyError(err) {
+  switch (err?.name) {
+    case 'NotAllowedError':
+      return 'Camera permission was denied. Enable it in your browser settings and try again.'
+    case 'NotFoundError':
+      return 'No camera was found on this device.'
+    case 'NotReadableError':
+      return 'The camera is already in use by another app.'
+    case 'OverconstrainedError':
+      return 'This camera does not support the requested settings.'
+    default:
+      return err?.message || 'The camera could not be started.'
+  }
+}
+
+/** Live camera feed with a capture button. */
+export function CameraCapture({ onCapture, facingMode = 'environment', autoStart = false }) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
-  const [showCamera, setShowCamera] = useState(false)
+  const [active, setActive] = useState(false)
   const [error, setError] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+  const [busy, setBusy] = useState(false)
 
-  const startCamera = useCallback(async () => {
+  const stop = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+    setActive(false)
+  }, [])
+
+  const start = useCallback(async () => {
+    setError('')
+    setBusy(true)
+
     try {
-      setIsLoading(true)
-      setError('')
-      
-      if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-        throw new Error('Camera requires HTTPS or localhost')
+      if (!window.isSecureContext) {
+        throw new Error('Camera access requires a secure (HTTPS) connection.')
       }
-      
+
       let stream
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { 
-            facingMode: { ideal: facingMode },
-            width: { ideal: 1280, max: 1280 },
-            height: { ideal: 720, max: 720 }
-          }
+          video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
         })
-      } catch (e) {
+      } catch {
         stream = await navigator.mediaDevices.getUserMedia({ video: true })
       }
-      
-      console.log('[CameraCapture] Stream obtained:', stream)
+
       streamRef.current = stream
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        console.log('[CameraCapture] Stream attached to video element')
-        
-        // Play the video
-        videoRef.current.play().then(() => {
-          console.log('[CameraCapture] Video playing successfully, size:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight)
-        }).catch(err => {
-          console.error('[CameraCapture] Play failed:', err)
-        })
-      } else {
-        console.warn('[CameraCapture] Video ref is null, will retry on next render')
-      }
+      setActive(true)
     } catch (err) {
-      console.error('[CameraCapture] Access error:', err)
-      console.error('[CameraCapture] Error name:', err.name)
-      console.error('[CameraCapture] Error message:', err.message)
-      console.error('[CameraCapture] Error details:', JSON.stringify(err))
-      let message = 'Camera access denied'
-      if (err.name === 'NotAllowedError') message = 'Camera permission denied'
-      else if (err.name === 'NotFoundError') message = 'No camera found'
-      else if (err.name === 'NotReadableError') message = 'Camera in use by another app'
-      else if (err.name === 'OverconstrainedError') message = 'Camera constraints not supported'
-      else if (err.message && err.message.includes('HTTPS')) message = 'Camera requires HTTPS or localhost'
-      else message = err.message || 'Unknown camera error'
-      setError(message)
+      setError(friendlyError(err))
+      setActive(false)
     } finally {
-      setIsLoading(false)
+      setBusy(false)
     }
   }, [facingMode])
 
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
-      streamRef.current = null
+  // Attach the stream once the <video> exists.
+  useEffect(() => {
+    if (active && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
     }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null
-    }
-    setShowCamera(false)
-  }, [])
+  }, [active])
 
-  const capturePhoto = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return null
+  useEffect(() => {
+    if (autoStart) start()
+  }, [autoStart, start])
+
+  // Release the camera on unmount.
+  useEffect(() => stop, [stop])
+
+  async function handleCapture() {
     const video = videoRef.current
     const canvas = canvasRef.current
-    
-    if (!video.videoWidth || !video.videoHeight) return null
-    
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(video, 0, 0)
-    
-    return new Promise((resolve) => {
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const file = new File([blob], `capture-${Date.now()}.jpg`, { type: 'image/jpeg' })
-          const url = URL.createObjectURL(blob)
-          resolve({ file, dataUrl: url })
-        } else {
-          resolve(null)
-        }
-      }, 'image/jpeg', 0.85)
-    })
-  }, [])
+    if (!video || !canvas || !video.videoWidth) return
 
-  const handleCapture = async () => {
-    const result = await capturePhoto()
-    if (result) {
-      onCapture(result.file, result.dataUrl)
+    setBusy(true)
+    try {
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      canvas.getContext('2d').drawImage(video, 0, 0)
+
+      const blob = await new Promise((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', 0.85)
+      )
+      if (!blob) {
+        setError('The photo could not be processed. Please try again.')
+        return
+      }
+
+      stop()
+      onCapture(new File([blob], `capture-${Date.now()}.jpg`, { type: 'image/jpeg' }))
+    } finally {
+      setBusy(false)
     }
   }
 
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop())
-      }
-    }
-  }, [])
-
-  // Auto-start camera when component mounts if autoStart is true
-  useEffect(() => {
-    if (autoStart && !streamRef.current && !error) {
-      // First show the camera container so video element renders
-      setShowCamera(true)
-      
-      // Then wait for video ref to be available before starting camera
-      const timer = setTimeout(() => {
-        if (videoRef.current) {
-          startCamera()
-        } else {
-          console.warn('[CameraCapture] Video ref not available after delay, retrying...')
-          // Retry with a longer delay
-          const retryTimer = setTimeout(() => {
-            if (videoRef.current) {
-              startCamera()
-            } else {
-              console.error('[CameraCapture] Video ref still not available, giving up')
-            }
-          }, 200)
-          return () => clearTimeout(retryTimer)
-        }
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [autoStart, streamRef, error, startCamera])
-
-  // Ensure video plays when camera becomes visible
-  useEffect(() => {
-    if (showCamera && videoRef.current) {
-      console.log('[CameraCapture] Camera visible, attempting to play video')
-      videoRef.current.play().catch(err => {
-        console.error('[CameraCapture] Failed to play video on visibility change:', err)
-      })
-    }
-  }, [showCamera])
-
-  // Debug: log when video state changes
-  useEffect(() => {
-    if (videoRef.current) {
-      const logState = () => console.log('[CameraCapture] Video state:', {
-        readyState: videoRef.current.readyState,
-        videoWidth: videoRef.current.videoWidth,
-        videoHeight: videoRef.current.videoHeight,
-        paused: videoRef.current.paused,
-        ended: videoRef.current.ended
-      })
-      videoRef.current.addEventListener('loadedmetadata', logState)
-      videoRef.current.addEventListener('play', logState)
-      videoRef.current.addEventListener('pause', logState)
-      return () => {
-        videoRef.current.removeEventListener('loadedmetadata', logState)
-        videoRef.current.removeEventListener('play', logState)
-        videoRef.current.removeEventListener('pause', logState)
-      }
-    }
-  }, [])
-
-  return (
-    <div className="camera-capture">
-      {showCamera ? (
-        <div className="camera-active w-full max-w-md mx-auto">
-          <div className="relative mb-2">
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline 
-              muted
-              className="w-full rounded-lg bg-black shadow-lg"
-              style={{ 
-                backgroundColor: '#000', 
-                aspectRatio: '16/9',
-                minHeight: '300px',
-                maxHeight: '400px',
-                objectFit: 'cover'
-              }}
-            />
-            <canvas ref={canvasRef} className="hidden" />
-            {error && (
-              <div className="absolute top-0 left-0 right-0 p-2 text-white bg-red-600/90 text-center text-sm rounded-t-lg">
-                {error}
-              </div>
-            )}
-          </div>
-          
-          <div className="flex gap-2 justify-center mt-3">
-            <button
-              onClick={handleCapture}
-              disabled={!streamRef.current || isLoading}
-              className="btn-primary px-6 py-2 rounded-lg font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <>
-                  <span className="spinner-border spinner-border-sm"></span>
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <i className={`bi ${biCamera} me-1`}></i> Capture
-                </>
-              )}
-            </button>
-          </div>
-          <p className="text-muted text-sm text-center mt-2">Position the subject in the frame</p>
-        </div>
-      ) : (
-        <div className="camera-inactive text-center py-6">
-          {error && <Alert variant="danger" className="mb-2">{error}</Alert>}
-          <i className="bi bi-camera-video fs-1 text-muted mb-3"></i>
-          <p className="text-muted mb-3">{placeholder}</p>
-          <button
-            onClick={startCamera}
-            disabled={isLoading}
-            className="btn-outline-primary px-6 py-2 rounded-lg font-medium flex items-center gap-2 mx-auto"
+  if (!active) {
+    return (
+      <div className="flex flex-col items-center rounded-lg border border-dashed border-line-strong bg-surface-sunken px-6 py-12 text-center">
+        {error ? (
+          <Alert tone="bad" className="mb-5 w-full max-w-sm text-start">
+            {error}
+          </Alert>
+        ) : (
+          <span
+            aria-hidden="true"
+            className="mb-4 grid h-11 w-11 place-items-center rounded-lg bg-surface text-lg text-ink-subtle"
           >
-            {isLoading ? (
-              <>
-                <span className="spinner-border spinner-border-sm me-2"></span>
-                Starting...
-              </>
-            ) : (
-              <>
-                <i className={`bi ${biCamera} me-1`}></i> Open Camera
-              </>
-            )}
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// PhotoPreview Component - Shows captured photo with retake/cancel/submit actions
-export function PhotoPreview({ dataUrl, onRetake, onCancel, onSubmit, title = 'Preview' }) {
-  return (
-    <div className="photo-preview text-center">
-      <h5 className="mb-3">{title}</h5>
-      <div className="mb-4">
-        <img 
-          src={dataUrl} 
-          alt="Preview" 
-          className="img-fluid rounded-lg shadow-lg max-h-[300px] mx-auto"
-        />
-      </div>
-      <div className="d-flex gap-2 justify-content-center flex-wrap">
-        <button
-          onClick={onRetake}
-          className="btn-secondary px-6 py-2 rounded-lg font-medium flex items-center gap-2"
-        >
-          <i className={`bi bi-arrow-clockwise me-1`}></i> Retake
-        </button>
-        {onCancel && (
-          <button
-            onClick={onCancel}
-            className="btn-outline-danger px-6 py-2 rounded-lg font-medium flex items-center gap-2"
-          >
-            <i className={`bi ${biXCircle} me-1`}></i> Cancel
-          </button>
+            <i className="bi bi-camera-video-fill" />
+          </span>
         )}
-        <button
-          onClick={onSubmit}
-          className="btn-primary px-6 py-2 rounded-lg font-medium flex items-center gap-2"
+
+        <p className="text-sm text-ink-muted">Use your camera to photograph the room.</p>
+
+        <Button
+          variant="primary"
+          size="lg"
+          icon="bi bi-camera-fill"
+          loading={busy}
+          onClick={start}
+          className="mt-5"
         >
-          <i className={`bi ${biCheckCircle} me-1`}></i> Submit
-        </button>
+          {error ? 'Try again' : 'Open camera'}
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-lg">
+      <div className="camera-frame mb-4">
+        <video ref={videoRef} autoPlay playsInline muted />
+        <canvas ref={canvasRef} className="hidden" />
+      </div>
+
+      <div className="flex flex-col items-center gap-3">
+        <Button
+          variant="primary"
+          size="lg"
+          icon="bi bi-camera-fill"
+          loading={busy}
+          onClick={handleCapture}
+          disabled={!streamRef.current}
+          className="w-full sm:w-auto"
+        >
+          Capture photo
+        </Button>
+        <p className="text-center text-xs text-ink-muted">
+          Keep the whole room in frame and make sure it is well lit.
+        </p>
       </div>
     </div>
   )
 }
+
+/** Captured photo with retake / cancel / confirm actions. */
+export function PhotoPreview({ dataUrl, alt = 'Captured photo', onRetake, onCancel, onConfirm, busy }) {
+  return (
+    <div className="flex flex-col items-center">
+      <img
+        src={dataUrl}
+        alt={alt}
+        className="mb-5 max-h-96 w-auto max-w-full rounded-lg border border-line object-contain"
+      />
+
+      <div className="flex w-full max-w-sm flex-col gap-2 sm:flex-row">
+        <Button variant="secondary" icon="bi bi-arrow-clockwise" onClick={onRetake} block>
+          Retake
+        </Button>
+        {onCancel && (
+          <Button variant="ghost" icon="bi bi-x-lg" onClick={onCancel} block>
+            Cancel
+          </Button>
+        )}
+        <Button variant="primary" icon="bi bi-check-lg" onClick={onConfirm} loading={busy} block>
+          Use photo
+        </Button>
+      </div>
+    </div>
+  )
+}
+

@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { FullPageLoader } from './components/ui'
 import Login from './pages/auth/Login'
 import AdminLayout from './layouts/AdminLayout'
 import StudentLayout from './layouts/StudentLayout'
@@ -38,30 +39,15 @@ import QRScan from './pages/QRScan'
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth()
-  
-  console.log('[ProtectedRoute] Check:', { loading, user: user ? { role: user.role, id: user.id } : null, allowedRoles })
-  
-  if (loading) {
-    return (
-      <div className="d-flex align-items-center justify-content-center vh-100">
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    )
-  }
-  
-  if (!user) {
-    console.log('[ProtectedRoute] No user, redirecting to login')
-    return <Navigate to="/login" replace />
-  }
-  
+
+  if (loading) return <FullPageLoader label="Checking your session…" />
+
+  if (!user) return <Navigate to="/login" replace />
+
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    console.log('[ProtectedRoute] Role mismatch:', { userRole: user.role, allowedRoles })
     return <Navigate to="/login" replace />
   }
-  
-  console.log('[ProtectedRoute] Access granted, rendering children')
+
   return children
 }
 
