@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   Card,
+  CardBody,
   CardHeader,
   CardTitle,
   EmptyState,
@@ -112,8 +113,9 @@ export default function SpecialSchedule() {
             description="You have no scheduled classes for today."
           />
         ) : (
-          <ul className="-mx-4 flex flex-col sm:-mx-5">
-            {todaysClasses.map((item) => (
+          <CardBody className="px-0 py-2">
+            <ul className="flex flex-col">
+              {todaysClasses.map((item) => (
               <li
                 key={item.id}
                 className="flex flex-col gap-4 border-b border-line px-4 py-4 last:border-b-0 sm:px-5"
@@ -157,8 +159,9 @@ export default function SpecialSchedule() {
                   </Button>
                 </div>
               </li>
-            ))}
-          </ul>
+              ))}
+            </ul>
+          </CardBody>
         )}
       </Card>
 

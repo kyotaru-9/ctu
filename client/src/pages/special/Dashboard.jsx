@@ -106,30 +106,10 @@ export default function SpecialDashboard() {
       )}
 
       <StatGrid columns={4} className="mb-6">
-        <StatCard
-          label="Today's classes"
-          value={todaysSchedule.length}
-          icon="bi bi-calendar3"
-          tone="accent"
-        />
-        <StatCard
-          label="Before submitted"
-          value={submissionStatus.before ? 1 : 0}
-          icon="bi bi-check-circle-fill"
-          tone={submissionStatus.before ? 'ok' : 'neutral'}
-        />
-        <StatCard
-          label="After pending"
-          value={submissionStatus.after ? 0 : 1}
-          icon="bi bi-clock"
-          tone={submissionStatus.after ? 'ok' : 'warn'}
-        />
-        <StatCard
-          label="Compliance"
-          value={`${compliance}%`}
-          icon="bi bi-graph-up"
-          tone="info"
-        />
+        <StatCard label="Today's classes" value={todaysSchedule.length} />
+        <StatCard label="Before submitted" value={submissionStatus.before ? 1 : 0} />
+        <StatCard label="After pending" value={submissionStatus.after ? 0 : 1} />
+        <StatCard label="Compliance" value={`${compliance}%`} />
       </StatGrid>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -152,27 +132,29 @@ export default function SpecialDashboard() {
               description="You have no scheduled classes for today."
             />
           ) : (
-            <ul className="-mx-4 flex flex-col sm:-mx-5">
-              {todaysSchedule.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3.5 last:border-b-0 sm:px-5"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">{item.subject_name}</p>
-                    <p className="mt-0.5 truncate text-xs text-ink-muted">
-                      {item.instructor_name || '—'} · {item.rooms?.room_name || '—'}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2.5">
-                    <span className="tabular text-sm text-ink">
-                      {formatTime(item.start_time)} – {formatTime(item.end_time)}
-                    </span>
-                    <Badge tone="accent">Scheduled</Badge>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <CardBody className="px-0 py-2">
+              <ul className="flex flex-col">
+                {todaysSchedule.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3.5 last:border-b-0 sm:px-5"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink">{item.subject_name}</p>
+                      <p className="mt-0.5 truncate text-xs text-ink-muted">
+                        {item.instructor_name || '—'} · {item.rooms?.room_name || '—'}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2.5">
+                      <span className="tabular text-sm text-ink">
+                        {formatTime(item.start_time)} – {formatTime(item.end_time)}
+                      </span>
+                      <Badge tone="accent">Scheduled</Badge>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </CardBody>
           )}
         </Card>
 

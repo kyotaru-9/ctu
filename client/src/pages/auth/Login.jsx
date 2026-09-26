@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { biBuilding, biPerson } from '../../utils/icons'
-import { Alert, Button, Card, CardBody, Input } from '../../components/ui'
+import { biPerson } from '../../utils/icons'
+import { Alert, Button, Card, CardBody, Input, Logo } from '../../components/ui'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -44,12 +44,7 @@ export default function Login() {
     <div className="flex min-h-dvh flex-col items-center justify-center bg-canvas px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-7 text-center">
-          <span
-            aria-hidden="true"
-            className="mb-5 inline-grid h-12 w-12 place-items-center rounded-xl bg-accent text-xl text-white"
-          >
-            <i className={biBuilding} />
-          </span>
+          <Logo size="lg" className="mb-5" />
           <h1 className="text-xl font-semibold tracking-tight text-ink">CTU Clean-Track</h1>
           <p className="mt-1.5 text-sm text-ink-muted">
             Classroom cleanliness monitoring

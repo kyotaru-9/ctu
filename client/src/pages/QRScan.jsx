@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
-import { biBuilding, biLock, biQRCode } from '../utils/icons'
+import { biLock, biQRCode } from '../utils/icons'
 import {
   Alert,
   Button,
@@ -10,6 +10,7 @@ import {
   CardBody,
   DetailList,
   IconTile,
+  Logo,
   SkeletonCard,
 } from '../components/ui'
 
@@ -98,7 +99,7 @@ export default function QRScan() {
     <div className="flex min-h-dvh items-center justify-center bg-canvas px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
-          <IconTile icon={biBuilding} tone="accent" size="lg" className="mx-auto mb-4" />
+          <Logo size="lg" className="mb-4" />
           <h1 className="text-lg font-semibold tracking-tight text-ink">CTU Clean-Track</h1>
           <p className="mt-1 text-sm text-ink-muted">Classroom cleanliness monitoring</p>
         </div>

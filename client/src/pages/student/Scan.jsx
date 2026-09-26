@@ -32,6 +32,11 @@ export default function StudentScan() {
   const navigate = useNavigate()
   const location = useLocation()
   const scannerRef = useRef(null)
+  // One decode per scanning session. html5-qrcode fires onSuccess on every
+  // frame that still sees the code, so without this the same token is
+  // re-validated many times a second.
+  const scanLockedRef = useRef(false)
+
 
   const [phase, setPhase] = useState('scanning')
   const [room, setRoom] = useState(null)
@@ -87,17 +92,27 @@ export default function StudentScan() {
   useEffect(() => {
     if (phase !== 'scanning') return
 
-    const elementId = 'qr-scanner'
-    if (!document.getElementById(elementId)) return
+    const element = document.getElementById('qr-scanner')
+    if (!element) return
 
-    const scanner = new Html5Qrcode(elementId)
+    const scanner = new Html5Qrcode('qr-scanner')
     scannerRef.current = scanner
+    scanLockedRef.current = false
+
+    // Set when this effect is torn down. start() resolves asynchronously, so a
+    // cleanup that runs before it settles sees isScanning === false and cannot
+    // stop the camera — which used to leave the decoder running behind the
+    // "Validating…" panel, bouncing the page between validating and identified.
+    let cancelled = false
 
     scanner
       .start(
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1 },
         (decodedText) => {
+          if (cancelled || scanLockedRef.current) return
+          scanLockedRef.current = true
+
           const token = decodedText.includes('/scan/')
             ? decodedText.split('/scan/').pop()
             : decodedText
@@ -107,19 +122,26 @@ export default function StudentScan() {
           // Per-frame decode misses are expected; ignore them.
         }
       )
+      .then(() => {
+        if (cancelled) return scanner.stop().catch(() => {})
+      })
       .catch(() => {
-        setCameraError(
-          'Camera access is unavailable. Allow camera permission in your browser, then try again.'
-        )
+        if (!cancelled) {
+          setCameraError(
+            'Camera access is unavailable. Allow camera permission in your browser, then try again.'
+          )
+        }
       })
 
     return () => {
+      cancelled = true
       if (scanner.isScanning) scanner.stop().catch(() => {})
     }
   }, [phase, validateQR])
 
   function handleRetry() {
     scannerRef.current = null
+    scanLockedRef.current = false
     setRoom(null)
     setError('')
     setCameraError('')

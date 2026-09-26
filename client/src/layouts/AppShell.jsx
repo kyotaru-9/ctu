@@ -2,19 +2,8 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { biBoxArrowRight, biPersonBadge } from '../utils/icons'
-import { Button, BottomNav, Drawer, IconTile, Menu, MenuDivider, MenuItem } from '../components/ui'
+import { BottomNav, Button, Drawer, IconTile, Logo, Menu, MenuDivider, MenuItem } from '../components/ui'
 import { cx } from '../lib/cx'
-
-function BrandMark() {
-  return (
-    <span
-      aria-hidden="true"
-      className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-base text-white"
-    >
-      <i className="bi bi-building-fill" />
-    </span>
-  )
-}
 
 function NavItems({ items, basePath, onNavigate }) {
   return (
@@ -72,6 +61,11 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems }) {
   const location = useLocation()
   const [drawerOpen, setDrawerOpen] = useState(false)
 
+  // Only admins have a settings route, so the dropdown entry is driven by the
+  // nav itself rather than hardcoded per role — it can never point at a route
+  // that does not exist.
+  const hasSettings = items.some((item) => item.path === 'settings')
+
   // Close the drawer on navigation and reset scroll for the new page.
   useEffect(() => {
     setDrawerOpen(false)
@@ -96,7 +90,7 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems }) {
       <aside className="app-sidebar no-print">
         <div className="flex h-16 items-center gap-2.5 border-b border-line px-4">
           <NavLink to={`${basePath}/dashboard`} className="flex min-w-0 items-center gap-2.5">
-            <BrandMark />
+            <Logo />
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold text-ink">CTU Clean-Track</span>
               <span className="block truncate text-xs text-ink-muted">{roleLabel}</span>
@@ -128,7 +122,7 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems }) {
             )}
 
             <div className="flex min-w-0 items-center gap-2.5 lg:hidden">
-              <BrandMark />
+              <Logo />
               <span className="truncate text-sm font-semibold text-ink">CTU Clean-Track</span>
             </div>
 
@@ -155,10 +149,14 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems }) {
                   </p>
                   <p className="truncate text-xs text-ink-muted">{roleLabel}</p>
                 </div>
-                <MenuItem icon="bi bi-gear" onClick={() => navigate(`${basePath}/settings`)}>
-                  Settings
-                </MenuItem>
-                <MenuDivider />
+                {hasSettings && (
+                  <>
+                    <MenuItem icon="bi bi-gear" onClick={() => navigate(`${basePath}/settings`)}>
+                      Settings
+                    </MenuItem>
+                    <MenuDivider />
+                  </>
+                )}
                 <MenuItem icon="bi bi-box-arrow-right" onClick={handleSignOut}>
                   Sign Out
                 </MenuItem>
