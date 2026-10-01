@@ -65,14 +65,10 @@ router.get('/dashboard', async (req, res) => {
 router.get('/sections', async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin.from('sections').select('*').order('created_at', { ascending: false })
-    if (error) {
-      console.error('[Server] Supabase error fetching sections:', error)
-      throw error
+    if (error) {      throw error
     }
     res.json({ success: true, data })
-  } catch (err) {
-    console.error('[Server] Error fetching sections:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to load sections' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to load sections' })
   }
 })
 
@@ -115,9 +111,7 @@ async function createSectionWithAccounts(input) {
     }
   })
 
-  if (authError) {
-    console.error('[Server] Auth user creation failed:', authError)
-    await supabaseAdmin.from('sections').delete().eq('id', section.id)
+  if (authError) {    await supabaseAdmin.from('sections').delete().eq('id', section.id)
     throw authError
   }
 
@@ -130,9 +124,7 @@ async function createSectionWithAccounts(input) {
     is_active: true
   })
 
-  if (profileError) {
-    console.error('[Server] Profile creation failed:', profileError)
-    await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
+  if (profileError) {    await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
     await supabaseAdmin.from('sections').delete().eq('id', section.id)
     throw profileError
   }
@@ -154,9 +146,7 @@ router.post('/sections', async (req, res) => {
     // created here.
     const { section, credentials } = await createSectionWithAccounts(req.body)
     res.json({ success: true, data: section, credentials })
-  } catch (err) {
-    console.error('[Server] Error creating section:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to create section' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to create section' })
   }
 })
 
@@ -265,15 +255,9 @@ router.post('/sections/batch', async (req, res) => {
           mayor_name: result.section.mayor_name,
           credentials: result.credentials,
         })
-      } catch (err) {
-        console.error(`[Server] Batch import failed at ${label}:`, err)
-        failed.push({ row: label, reason: err.message || 'Could not create this section' })
+      } catch (err) {        failed.push({ row: label, reason: err.message || 'Could not create this section' })
       }
     }
-
-    console.log(
-      `[Server] Batch import finished - ${created.length} created, ${skipped.length} skipped, ${failed.length} failed`
-    )
 
     res.json({
       success: true,
@@ -284,9 +268,7 @@ router.post('/sections/batch', async (req, res) => {
         total: rows.length,
       },
     })
-  } catch (err) {
-    console.error('[Server] Error importing sections:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to import sections' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to import sections' })
   }
 })
 
@@ -367,9 +349,7 @@ router.put('/sections/:id/roles', async (req, res) => {
           .update({ is_active: enabled })
           .eq('id', profile.id)
 
-        if (error) {
-          console.error(`[Server] Could not set ${role} account for ${sectionId} to ${enabled}:`, error.message)
-          continue
+        if (error) {          continue
         }
 
         await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
@@ -411,8 +391,6 @@ router.put('/sections/:id/roles', async (req, res) => {
       })
 
       if (createError || !authUser?.user) {
-        console.error(`[Server] Could not create ${label} account for ${sectionId}:`, createError?.message)
-
         // Undo what this call already created: a section with half its accounts
         // enabled is worse than one left exactly as it was.
         for (const entry of created) {
@@ -434,9 +412,7 @@ router.put('/sections/:id/roles', async (req, res) => {
         is_active: true,
       })
 
-      if (profileError) {
-        console.error(`[Server] Could not save ${label} profile for ${sectionId}:`, profileError.message)
-        await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
+      if (profileError) {        await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
 
         for (const entry of created) {
           await supabaseAdmin.auth.admin.deleteUser(entry.authUserId)
@@ -465,12 +441,7 @@ router.put('/sections/:id/roles', async (req, res) => {
 
       const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, { password })
 
-      if (error) {
-        console.error(
-          `[Server] Could not move ${profile.role} account ${profile.auth_user_id} onto the shared password:`,
-          error.message
-        )
-        continue
+      if (error) {        continue
       }
 
       const { data: existing } = await supabaseAdmin.auth.admin.getUserById(profile.auth_user_id)
@@ -483,18 +454,12 @@ router.put('/sections/:id/roles', async (req, res) => {
       })
     }
 
-    console.log(
-      `[Server] Section ${sectionId} roles updated — ${created.length} account(s) created and the section password was reset`
-    )
-
     res.json({
       success: true,
       message: 'Roles updated',
       data: { passwordChanged: true, accounts },
     })
-  } catch (err) {
-    console.error('[Server] Error updating roles:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to update roles' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to update roles' })
   }
 })
 
@@ -543,23 +508,14 @@ router.post('/sections/:id/regenerate-credentials', async (req, res) => {
         profile.auth_user_id
       )
 
-      if (readError || !existing?.user?.email) {
-        console.error(
-          '[Server] Could not read account',
-          profile.auth_user_id,
-          '-',
-          readError?.message
-        )
-        continue
+      if (readError || !existing?.user?.email) {        continue
       }
 
       const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
         password
       })
 
-      if (error) {
-        console.error('[Server] Password reset failed for', profile.auth_user_id, '-', error.message)
-        continue
+      if (error) {        continue
       }
 
       accounts.push({
@@ -579,15 +535,9 @@ router.post('/sections/:id/regenerate-credentials', async (req, res) => {
     }
 
     const skipped = profiles.length - accounts.length
-    if (skipped > 0) {
-      console.log('[Server] Regenerate credentials: skipped', skipped, 'account(s) for section', sectionId)
-    }
-
-    console.log('[Server] Regenerated credentials for section', sectionId, '-', accounts.length, 'account(s)')
-    res.json({ success: true, message: 'Password regenerated', data: { accounts, skipped } })
-  } catch (err) {
-    console.error('[Server] Error regenerating credentials:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to regenerate credentials' })
+    if (skipped > 0) {    }
+    res.json({ success: true, message: 'Password regenerated', data: { accounts, skipped } })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to regenerate credentials' })
   }
 })
 
@@ -659,14 +609,7 @@ router.delete('/sections/:id', async (req, res) => {
       const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(account.auth_user_id)
       if (authError) {
         // Left in place deliberately. The profile delete below cuts its access
-        // off, and leaving the account lets an admin clean it up by hand.
-        console.error(
-          '[Server] Could not delete auth user',
-          account.auth_user_id,
-          '-',
-          authError.message
-        )
-        continue
+        // off, and leaving the account lets an admin clean it up by hand.        continue
       }
       revoked += 1
     }
@@ -695,20 +638,14 @@ router.delete('/sections/:id', async (req, res) => {
     }
 
     const stranded = (accounts?.length ?? 0) - revoked
-    if (stranded > 0) {
-      console.log(
-        `[Server] Section ${sectionId} deleted; ${stranded} auth account(s) could not be removed and need manual cleanup`
-      )
-    }
+    if (stranded > 0) {    }
 
     res.json({
       success: true,
       message: 'Section deleted',
       data: { accountsDeleted: accounts?.length ?? 0, authUsersRemoved: revoked }
     })
-  } catch (err) {
-    console.error('[Server] Error deleting section:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to delete section' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to delete section' })
   }
 })
 
@@ -788,12 +725,7 @@ router.patch('/sections/:id/status', async (req, res) => {
         .update({ is_active: isActive })
         .eq('id', account.id)
 
-      if (profileError) {
-        console.error(
-          `[Server] Could not set profile ${account.id} active=${isActive}:`,
-          profileError.message
-        )
-        continue
+      if (profileError) {        continue
       }
 
       // The auth user carries the same flag in its metadata for anything that
@@ -805,11 +737,7 @@ router.patch('/sections/:id/status', async (req, res) => {
       updated += 1
     }
 
-    if (accounts?.length && updated !== accounts.length) {
-      console.log(
-        `[Server] Section ${sectionId} set active=${isActive}; ${updated}/${accounts.length} account(s) updated`
-      )
-    }
+    if (accounts?.length && updated !== accounts.length) {    }
 
     /*
      * The reason goes in audit_logs rather than a column on sections, so it needs
@@ -818,7 +746,10 @@ router.patch('/sections/:id/status', async (req, res) => {
      * recent status entry, so without it a re-enabled section that was disabled
      * again for a different reason would still show the old one.
      */
-    const { error: logError } = await supabaseAdmin.from('audit_logs').insert({
+// Best-effort: the section is already toggled and the accounts already flipped, so a
+    // failed audit write must not fail the request — that would report a change that
+    // did happen as a failure. The error is deliberately not surfaced.
+    await supabaseAdmin.from('audit_logs').insert({
       user_id: req.user?.id ?? null,
       action: isActive ? 'section_reactivated' : 'section_deactivated',
       entity_type: 'section',
@@ -826,23 +757,13 @@ router.patch('/sections/:id/status', async (req, res) => {
       description: isActive ? `Section re-enabled: ${sectionLabel(section)}` : reason,
       ip_address: req.ip ?? null,
     })
-
-    if (logError) {
-      // The section is already toggled and the accounts already flipped, so this
-      // must not fail the request — it would report a change that did happen as
-      // a failure. Logged, because a missing reason is worth knowing about.
-      console.error('[Server] Could not record the section status change:', logError.message)
-    }
-
     res.json({
       success: true,
       data: section,
       accountsUpdated: updated,
       accountsTotal: accounts?.length ?? 0
     })
-  } catch (err) {
-    console.error('[Server] Error updating section status:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to update section status' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to update section status' })
   }
 })
 
@@ -887,9 +808,7 @@ router.post('/rooms', async (req, res) => {
   try {
     const data = await createRoom(req.body)
     res.json({ success: true, data })
-  } catch (err) {
-    console.error('[Server] Error creating room:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to create room' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to create room' })
   }
 })
 
@@ -965,23 +884,15 @@ router.post('/rooms/batch', async (req, res) => {
 
       try {
         created.push({ row: label, room: await createRoom(input) })
-      } catch (err) {
-        console.error(`[Server] Batch room import failed at ${label}:`, err)
-        failed.push({ row: label, reason: err.message || 'Could not create this room' })
+      } catch (err) {        failed.push({ row: label, reason: err.message || 'Could not create this room' })
       }
     }
-
-    console.log(
-      `[Server] Batch room import finished - ${created.length} created, ${skipped.length} skipped, ${failed.length} failed`
-    )
 
     res.json({
       success: true,
       data: { created, skipped, failed, total: rows.length },
     })
-  } catch (err) {
-    console.error('[Server] Error importing rooms:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to import rooms' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to import rooms' })
   }
 })
 
@@ -1035,9 +946,7 @@ router.get('/rooms/:id/impact', async (req, res) => {
     )
 
     res.json({ success: true, data: Object.fromEntries(counts) })
-  } catch (err) {
-    console.error('[Server] Error checking what a room owns:', err)
-    res.status(500).json({ success: false, message: 'Failed to check what this room owns' })
+  } catch (err) {    res.status(500).json({ success: false, message: 'Failed to check what this room owns' })
   }
 })
 
@@ -1069,9 +978,7 @@ router.delete('/rooms/:id', async (req, res) => {
     }
 
     res.json({ success: true, message: 'Room deleted' })
-  } catch (err) {
-    console.error('[Server] Error deleting room:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to delete room' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to delete room' })
   }
 })
 
@@ -1305,26 +1212,18 @@ router.post('/schedules/batch', async (req, res) => {
         .select(SCHEDULE_SELECT)
         .single()
 
-      if (error) {
-        console.error(`[Server] Batch schedule import failed at ${row.__row}:`, error.message)
-        failed.push({ row: row.__row, reason: error.message || 'Could not create this schedule' })
+      if (error) {        failed.push({ row: row.__row, reason: error.message || 'Could not create this schedule' })
         continue
       }
 
       created.push({ row: row.__row, schedule: data })
     }
 
-    console.log(
-      `[Server] Batch schedule import finished - ${created.length} created, ${skipped.length} skipped, ${failed.length} failed`
-    )
-
     res.json({
       success: true,
       data: { created, skipped, failed, total: list.length },
     })
-  } catch (err) {
-    console.error('[Server] Error importing schedules:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to import schedules' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to import schedules' })
   }
 })
 
@@ -1383,9 +1282,7 @@ router.get('/schedules/:id/impact', async (req, res) => {
       success: true,
       data: { occupations: occupationIds.length, submissions },
     })
-  } catch (err) {
-    console.error('[Server] Error checking what a schedule owns:', err)
-    res.status(500).json({ success: false, message: 'Failed to check what this schedule owns' })
+  } catch (err) {    res.status(500).json({ success: false, message: 'Failed to check what this schedule owns' })
   }
 })
 
@@ -1418,12 +1315,8 @@ router.delete('/schedules/:id', async (req, res) => {
     }
 
     // Logged, not written to audit_logs, to match the other permanent deletes.
-    console.log(`[Server] Schedule deleted: ${req.params.id} — occupations recorded against it keep their history and lose their class link`)
-
     res.json({ success: true, message: 'Schedule deleted' })
-  } catch (err) {
-    console.error('[Server] Error deleting schedule:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to delete schedule' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to delete schedule' })
   }
 })
 
@@ -1776,9 +1669,7 @@ router.get('/audit-logs', async (req, res) => {
 
     if (error) throw error
     res.json({ success: true, data })
-  } catch (err) {
-    console.error('[Server] Error loading audit logs:', err)
-    res.status(500).json({ success: false, message: 'Failed to load audit logs' })
+  } catch (err) {    res.status(500).json({ success: false, message: 'Failed to load audit logs' })
   }
 })
 
@@ -1819,9 +1710,7 @@ router.get('/audit-logs/dates', async (req, res) => {
       .sort((a, b) => b.date.localeCompare(a.date))
 
     res.json({ success: true, data: { dates, total: data?.length ?? 0 } })
-  } catch (err) {
-    console.error('[Server] Error counting audit log days:', err)
-    res.status(500).json({ success: false, message: 'Failed to load audit log history' })
+  } catch (err) {    res.status(500).json({ success: false, message: 'Failed to load audit log history' })
   }
 })
 
@@ -1914,18 +1803,12 @@ router.delete('/audit-logs', async (req, res) => {
 
     // An audit-log delete is an audit event in itself, so it is recorded the way
     // the batch and credential operations are rather than as an error.
-    console.log(
-      `[Server] Deleted ${deleted} audit log entr${deleted === 1 ? 'y' : 'ies'}${before ? ' before' : ''} ${sorted.join(', ')}`
-    )
-
     res.json({
       success: true,
       message: 'Audit log entries deleted',
       data: { deleted, dates: sorted, before: Boolean(before) }
     })
-  } catch (err) {
-    console.error('[Server] Error deleting audit logs:', err)
-    res.status(500).json({ success: false, message: err.message || 'Failed to delete audit logs' })
+  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to delete audit logs' })
   }
 })
 
