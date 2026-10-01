@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { occupationService } from '../../services/occupationService'
 import { formatDate, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
 import {
@@ -28,8 +29,106 @@ import {
   TableCard,
 } from '../../components/ui'
 
-function SubmissionFlag({ submission }) {
-  return submission ? (
+// Matches the w-48 / max-h-56 classes on the preview below, and is needed here
+// because the rect maths runs before that element has been measured.
+const PREVIEW_W = 192
+const PREVIEW_MAX_H = 224
+const GAP = 8
+const OPEN_DELAY = 250
+
+/**
+ * The photo behind a Done badge, floating above it while the pointer rests
+ * there.
+ *
+ * Portalled to the body instead of positioned against the badge: the table sits
+ * inside `.scroll-x` and a Card with `overflow-hidden`, and a box that clips one
+ * axis clips both, so a preview rendered in the cell is cut off by the very row
+ * it is trying to float over. Fixed positioning is outside that clip.
+ *
+ * The bottom edge is pinned to the badge rather than the top edge of the image,
+ * so a photo of any height grows upward toward a fixed gap instead of having to
+ * be measured first. Rows too close to the top of the viewport flip below, since
+ * there is no room above them to grow into.
+ */
+function SubmissionPhotoPreview({ submission, label, rect, id }) {
+  const centered = rect.left + rect.width / 2 - PREVIEW_W / 2
+  const left = Math.min(Math.max(centered, GAP), window.innerWidth - PREVIEW_W - GAP)
+  const flipBelow = rect.top < PREVIEW_MAX_H + GAP
+
+  return createPortal(
+    <div
+      id={id}
+      role="tooltip"
+      style={{
+        position: 'fixed',
+        left,
+        // Above the page chrome but level with a modal's portal, since the
+        // preview only exists while the table itself is being hovered.
+        zIndex: 50,
+        ...(flipBelow
+          ? { top: rect.bottom + GAP }
+          : { bottom: window.innerHeight - rect.top + GAP }),
+      }}
+    >
+      <img
+        src={submission.image_url}
+        alt={`${label} photo`}
+        // The sunken fill is the loading state: the box is bordered before the
+        // photo arrives, and it should read as a placeholder rather than a hole.
+        className="max-h-56 w-48 rounded-md border border-line bg-surface-sunken object-contain shadow-md"
+      />
+    </div>,
+    document.body
+  )
+}
+
+function SubmissionFlag({ submission, label }) {
+  const triggerRef = useRef(null)
+  const timerRef = useRef(null)
+  const [rect, setRect] = useState(null)
+  const previewId = useId()
+
+  // Nothing to preview unless a submission exists and a photo came with it, so a
+  // Missing badge — and a Done badge for a photo-less record — never opens an
+  // empty bordered box over the table.
+  const previewable = Boolean(submission?.image_url)
+
+  const hide = useCallback(() => {
+    clearTimeout(timerRef.current)
+    setRect(null)
+  }, [])
+
+  // Measured once on open, so the preview has to be dismissed when the page
+  // moves under it: scrolling would otherwise leave it hovering over a row that
+  // is no longer there. Capture phase, since `.scroll-x` scrolls, not window.
+  useEffect(() => {
+    if (!rect) return undefined
+
+    const onScroll = () => hide()
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [rect, hide])
+
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+
+  function show() {
+    if (!previewable) return
+
+    // Held back briefly: Before and After are columns of hover targets, and
+    // opening instantly means a sweep down either one flashes a preview per row
+    // rather than reading as a deliberate look at one record.
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => {
+      const trigger = triggerRef.current
+      if (trigger) setRect(trigger.getBoundingClientRect())
+    }, OPEN_DELAY)
+  }
+
+  const badge = submission ? (
     <Badge tone="ok" icon="bi bi-check-lg">
       Done
     </Badge>
@@ -37,6 +136,30 @@ function SubmissionFlag({ submission }) {
     <Badge tone="bad" icon="bi bi-x-lg">
       Missing
     </Badge>
+  )
+
+  if (!previewable) return badge
+
+  // The focus handlers are the keyboard equivalent of the hover: a Done badge
+  // that only responds to a mouse is a control a keyboard cannot reach. The
+  // wrapper carries the ref and the handlers because Badge is a function
+  // component and cannot take a ref.
+  return (
+    <>
+      <span
+        ref={triggerRef}
+        className="inline-flex cursor-zoom-in rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        tabIndex={0}
+        aria-describedby={previewId}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+      >
+        {badge}
+      </span>
+      {rect && <SubmissionPhotoPreview submission={submission} label={label} rect={rect} id={previewId} />}
+    </>
   )
 }
 
@@ -220,10 +343,10 @@ export default function AdminOccupations() {
                       : '—'}
                   </TD>
                   <TD>
-                    <SubmissionFlag submission={occupation.before} />
+                    <SubmissionFlag submission={occupation.before} label="Before class" />
                   </TD>
                   <TD>
-                    <SubmissionFlag submission={occupation.after} />
+                    <SubmissionFlag submission={occupation.after} label="After class" />
                   </TD>
                   <TD>
                     <StatusBadge map={OCCUPATION_STATUS} value={occupation.status} />

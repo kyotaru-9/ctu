@@ -24,6 +24,13 @@ export default function BatchImportModal({
   expectedHeaders,
   templateRows,
   templateFileName,
+  // Rendered above the template button, for a caller that needs something chosen
+  // before a row means anything — a schedule's section, for instance. Stays in
+  // this one dialog rather than becoming a step before it.
+  contextSlot,
+  // False while that context is still unset, which holds the import closed
+  // instead of sending rows that have nowhere to go.
+  contextReady = true,
   columns,
   reviewRow,
   uniqueBy,
@@ -46,8 +53,11 @@ export default function BatchImportModal({
   // result reporting that a row was skipped for no visible reason.
   const seen = new Map()
 
+  // The whole file is passed as well as the row, because a row can be invalid
+  // only in company with the others — a schedule naming a room that exists
+  // nowhere in the sheet is one failure across every row, not a per-row problem.
   const review = rows.map((row, index) => {
-    const checked = reviewRow(row)
+    const checked = reviewRow(row, rows)
     if (checked.issue || !uniqueBy) return checked
 
     // `uniqueBy` accepts several fields joined by `|`, since a section is only
@@ -176,7 +186,7 @@ export default function BatchImportModal({
               icon={biCloudUpload}
               onClick={handleImport}
               loading={importing}
-              disabled={!importable.length}
+              disabled={!contextReady || !importable.length}
             >
               Import {importable.length} {entityLabel}
               {importable.length === 1 ? '' : 's'}
@@ -209,6 +219,8 @@ export default function BatchImportModal({
           {error && <Alert tone="bad">{error}</Alert>}
 
           <Alert tone="info">{intro}</Alert>
+
+          {contextSlot && <div>{contextSlot}</div>}
 
           <div>
             <Button

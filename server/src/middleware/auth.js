@@ -63,46 +63,44 @@ export async function authenticateUser(req, res, next) {
   }
 }
 
-export function requireAdmin(req, res, next) {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Admin access required',
-      error: 'Insufficient permissions'
-    })
+/**
+ * Builds a role guard.
+ *
+ * The missing-user case is checked before the role is read, because dereferencing
+ * an absent req.user throws a TypeError and surfaces as a 500 — an
+ * unauthenticated request reported as a server fault. Every guard here is mounted
+ * after authenticateUser, so req.user is set by the time it runs; the check is
+ * there so a route mounted without it fails closed as a 401 rather than open, or
+ * confusingly, as a crash.
+ *
+ * Built once here rather than repeated four times, so the four guards cannot
+ * drift apart on which failure they report.
+ */
+function requireRole(roles, message) {
+  const allowed = Array.isArray(roles) ? roles : [roles]
+
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        error: 'No authenticated user'
+      })
+    }
+
+    if (!allowed.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message,
+        error: 'Insufficient permissions'
+      })
+    }
+
+    next()
   }
-  next()
 }
 
-export function requireStudent(req, res, next) {
-  if (req.user.role !== 'student') {
-    return res.status(403).json({
-      success: false,
-      message: 'Student access required',
-      error: 'Insufficient permissions'
-    })
-  }
-  next()
-}
-
-export function requireStudentSpecial(req, res, next) {
-  if (req.user.role !== 'student_special') {
-    return res.status(403).json({
-      success: false,
-      message: 'Student Special access required',
-      error: 'Insufficient permissions'
-    })
-  }
-  next()
-}
-
-export function requireStudentOrSpecial(req, res, next) {
-  if (!['student', 'student_special'].includes(req.user.role)) {
-    return res.status(403).json({
-      success: false,
-      message: 'Student access required',
-      error: 'Insufficient permissions'
-    })
-  }
-  next()
-}
+export const requireAdmin = requireRole('admin', 'Admin access required')
+export const requireStudent = requireRole('student', 'Student access required')
+export const requireStudentSpecial = requireRole('student_special', 'Student Special access required')
+export const requireStudentOrSpecial = requireRole(['student', 'student_special'], 'Student access required')

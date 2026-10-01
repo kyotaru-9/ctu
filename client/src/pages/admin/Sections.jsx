@@ -58,9 +58,15 @@ const ROLE_LABELS = {
  * Shows freshly generated logins. Takes a list because a section can own both a
  * regular and a special-student account, and regenerating resets every one of
  * them at once.
+ *
+ * A section is handed out as one set of credentials, so every account in the list
+ * normally carries the same password. Showing it twice without saying so would read
+ * as a mistake, so the shared password is called out explicitly.
  */
 function CredentialsModal({ open, onClose, title, intro, accounts, section, note }) {
   const list = accounts ?? []
+  const sharedPassword =
+    list.length > 1 && list.every((account) => account.password === list[0].password)
 
   function handleCopy() {
     const text = list
@@ -98,6 +104,13 @@ function CredentialsModal({ open, onClose, title, intro, accounts, section, note
         section representative.
         {note ? ` ${note}` : ''}
       </p>
+
+      {sharedPassword && (
+        <Alert tone="info" className="mb-4">
+          Both accounts use the same password. Whoever holds it can sign in as either one, and both
+          see the same section data.
+        </Alert>
+      )}
 
       <div className="flex flex-col gap-3">
         {list.map((account) => (
@@ -290,8 +303,14 @@ export default function AdminSections() {
       setShowForm(false)
       await fetchSections()
 
+      // Only the student login comes back: creating a section never creates a
+      // special-student account. That is added per section through the roles
+      // endpoint, and it reuses this same password.
       if (!editingSection && response.credentials) {
-        setCredentials(response.credentials)
+        setCredentials({
+          accounts: [response.credentials],
+          section: sectionLabel,
+        })
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save section')
@@ -774,10 +793,10 @@ export default function AdminSections() {
         open={Boolean(credentials)}
         onClose={() => setCredentials(null)}
         title="Student account created"
-        intro="The section was created and a student account was generated automatically."
-        accounts={credentials ? [credentials] : []}
-        section={sectionLabel}
-        note="They must change their password on first login."
+        intro="The section was created and its student login was generated automatically. A special-student login, if the section needs one, is added separately and uses this same password."
+        accounts={credentials?.accounts ?? []}
+        section={credentials?.section}
+        note="We ask them to change their password on first login."
       />
 
       {/* Batch import */}

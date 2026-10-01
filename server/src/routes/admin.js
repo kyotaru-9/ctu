@@ -11,6 +11,25 @@ function generatePassword() {
   return Math.random().toString(36).slice(-8) + 'A1!'
 }
 
+/**
+ * The login address for one of a section's accounts.
+ *
+ * A section can own two — a student and a special student — so the role is part of
+ * the address. This is the single place it is built: the four call sites that used
+ * to spell it out inline had already drifted, and an address that differs between
+ * them is an account the admin can never be shown.
+ *
+ * Note the shift is not in the address even though section identity includes it,
+ * so a day and a night section of the same program, year and name still collide.
+ * That is known and left as it is for now; changing it would re-address accounts
+ * that have already been handed out.
+ */
+function sectionEmail(section, role) {
+  const code = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
+  const prefix = role === 'student_special' ? 'special-' : ''
+  return `${prefix}${code}@ctu.edu.ph`
+}
+
 /** "BSIT 3A" from a section record, for messages an admin reads. */
 function sectionLabel(section) {
   if (!section) return 'section'
@@ -58,19 +77,18 @@ router.get('/sections', async (req, res) => {
 })
 
 /**
- * Creates one section and the login accounts it owns.
+ * Creates one section and its student login.
  *
- * The regular student account is always created. The special-student account is
- * opt-in through `withSpecial`, because not every section has a special student
- * and an unused login is a credential nobody will ever hand out. The single
- * create route passes `true`; the batch import passes `false`.
+ * Only the regular student account, never a special-student one. A special student
+ * is a per-section assignment rather than a property of creating the section, so
+ * it is added afterwards through PUT /sections/:id/roles — the same path the batch
+ * import already pointed at. Minting one here would hand the admin a second
+ * credential they never asked for, for an account nobody may ever use.
  *
- * Throws if the section itself cannot be created or if the regular student
- * account fails, after undoing whatever was written. A failed special-student
- * account is logged and left behind: the section is still usable without it, and
- * the roles endpoint will create it on demand.
+ * Throws if the section itself cannot be created or if the account fails, after
+ * undoing whatever was written.
  */
-async function createSectionWithAccounts(input, { withSpecial = false } = {}) {
+async function createSectionWithAccounts(input) {
   const { data: section, error: sectionError } = await supabaseAdmin
     .from('sections')
     .insert(input)
@@ -78,12 +96,14 @@ async function createSectionWithAccounts(input, { withSpecial = false } = {}) {
     .single()
   if (sectionError) throw sectionError
 
-  // Generate email and password for student account
-  const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
-  const email = `${sectionCode}@ctu.edu.ph`
+  // One password for the section. If a special-student account is added later the
+  // roles route reuses this same value for it, so the section is always handed out
+  // as one set of credentials. It is never stored — it lives only in Supabase Auth,
+  // which will not read it back — so this is the moment the password is decided.
+  const email = sectionEmail(section, 'student')
   const password = generatePassword()
 
-    // Create Supabase Auth user for regular student
+  // Create Supabase Auth user for regular student
   const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
@@ -117,67 +137,23 @@ async function createSectionWithAccounts(input, { withSpecial = false } = {}) {
     throw profileError
   }
 
-  let specialCredentials = null
-
-  if (withSpecial) {
-    const specialEmail = `special-${sectionCode}@ctu.edu.ph`
-    const specialPassword = generatePassword()
-
-    const { data: specialAuthUser, error: specialAuthError } = await supabaseAdmin.auth.admin.createUser({
-      email: specialEmail,
-      password: specialPassword,
-      email_confirm: true,
-      user_metadata: {
-        section_id: section.id,
-        section_name: `${section.program} ${section.year_level}${section.section_name} (Special)`,
-        role: 'student_special'
-      }
-    })
-
-    if (specialAuthError) {
-      console.error('[Server] Special auth user creation failed:', specialAuthError)
-      // Don't rollback everything, just log error
-    } else {
-      // Create profile for student_special
-      const { error: specialProfileError } = await supabaseAdmin.from('profiles').insert({
-        auth_user_id: specialAuthUser.user.id,
-        section_id: section.id,
-        role: 'student_special',
-        full_name: `${section.program} ${section.year_level}${section.section_name} Special Student`,
-        is_active: true
-      })
-
-      if (specialProfileError) {
-        console.error('[Server] Special profile creation failed:', specialProfileError)
-      } else {
-        specialCredentials = {
-          email: specialEmail,
-          password: specialPassword,
-          section_id: section.id
-        }
-      }
-    }
-  }
-
   return {
     section,
     credentials: {
       email,
       password,
       section_id: section.id
-    },
-    specialCredentials
+    }
   }
 }
 
 router.post('/sections', async (req, res) => {
   try {
-    // Sections added one at a time get both logins; a section can be given a
-    // special student later through the roles endpoint.
-    const { section, credentials, specialCredentials } = await createSectionWithAccounts(req.body, {
-      withSpecial: true,
-    })
-    res.json({ success: true, data: section, credentials, specialCredentials })
+    // Student login only. A special student is assigned per section afterwards
+    // through the roles endpoint, which is also where it picks up the password
+    // created here.
+    const { section, credentials } = await createSectionWithAccounts(req.body)
+    res.json({ success: true, data: section, credentials })
   } catch (err) {
     console.error('[Server] Error creating section:', err)
     res.status(500).json({ success: false, message: err.message || 'Failed to create section' })
@@ -274,9 +250,9 @@ router.post('/sections/batch', async (req, res) => {
       }
 
       try {
-        // No special-student login: an import is a list of ordinary class
-        // sections, and a special student is assigned per section afterwards
-        // through PUT /sections/:id/roles.
+        // No special-student login, exactly as the single add-section route: a
+        // special student is assigned per section afterwards through
+        // PUT /sections/:id/roles, which reuses this section's password.
         const result = await createSectionWithAccounts({
           ...identity,
           mayor_name: values.mayor_name || null,
@@ -334,104 +310,188 @@ router.put('/sections/:id', async (req, res) => {
   }
 })
 
-// Update student roles for a section
+/**
+ * Enables or disables a section's two student logins, creating either one the
+ * section does not have yet.
+ *
+ * Creating a missing account mints a new password for the whole section. The
+ * current one is never stored — it lives only in Supabase Auth, which will not read
+ * it back — so a new account cannot be given it, and minting a second password here
+ * would leave the section holding two accounts that cannot log in with each other.
+ * Every account is set to one fresh password instead and all of them are returned
+ * below, so the admin can hand out the addresses as well as the password. The
+ * password previously in use stops working, which is why that is reported rather
+ * than done quietly.
+ */
 router.put('/sections/:id/roles', async (req, res) => {
   try {
-    const { sectionId } = req.params
+    // req.params.id, not params.sectionId: the route is '/sections/:id/roles', so the
+    // only param Express sets is `id`. Reading a `sectionId` here resolved to
+    // undefined, every lookup matched nothing, and the route 404'd on a section
+    // that plainly existed.
+    const sectionId = req.params.id
     const { studentEnabled, specialEnabled } = req.body
 
-    // Update regular student profile
-    if (studentEnabled !== undefined) {
-      const { data: studentProfiles } = await supabaseAdmin
-        .from('profiles')
-        .select('*')
-        .eq('section_id', sectionId)
-        .eq('role', 'student')
+    const { data: section, error: sectionError } = await supabaseAdmin
+      .from('sections')
+      .select('*')
+      .eq('id', sectionId)
+      .single()
 
-      if (studentProfiles && studentProfiles.length > 0) {
-        for (const profile of studentProfiles) {
-          await supabaseAdmin
-            .from('profiles')
-            .update({ is_active: studentEnabled })
-            .eq('id', profile.id)
-          
-          // Also update auth user
-          await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
-            user_metadata: { ...profile, is_active: studentEnabled }
-          })
-        }
-      } else if (studentEnabled) {
-        // Create new student if doesn't exist
-        const { data: section } = await supabaseAdmin.from('sections').select('*').eq('id', sectionId).single()
-        if (section) {
-          const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
-          const email = `${sectionCode}@ctu.edu.ph`
-          const password = generatePassword()
+    if (sectionError || !section) {
+      return res.status(404).json({ success: false, message: 'Section not found' })
+    }
 
-          const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
-            email, password, email_confirm: true,
-            user_metadata: { section_id: section.id, section_name: `${section.program} ${section.year_level}${section.section_name}`, role: 'student' }
-          })
-          
-          if (authUser.user) {
-            await supabaseAdmin.from('profiles').insert({
-              auth_user_id: authUser.user.id,
-              section_id: section.id,
-              role: 'student',
-              full_name: `${section.program} ${section.year_level}${section.section_name} Student`,
-              is_active: true
-            })
-          }
+    const wanted = [
+      { role: 'student', enabled: studentEnabled, label: 'student' },
+      { role: 'student_special', enabled: specialEnabled, label: 'special student' },
+    ].filter((entry) => entry.enabled !== undefined)
+
+    if (!wanted.length) {
+      return res.status(400).json({ success: false, message: 'No role was named' })
+    }
+
+    const { data: profiles, error: profilesError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('section_id', sectionId)
+
+    if (profilesError) throw profilesError
+
+    // Enable or disable whichever accounts the section already has. Nothing is
+    // created here, so toggling a role never disturbs a password already in use.
+    for (const { role, enabled } of wanted) {
+      for (const profile of profiles.filter((entry) => entry.role === role)) {
+        const { error } = await supabaseAdmin
+          .from('profiles')
+          .update({ is_active: enabled })
+          .eq('id', profile.id)
+
+        if (error) {
+          console.error(`[Server] Could not set ${role} account for ${sectionId} to ${enabled}:`, error.message)
+          continue
         }
+
+        await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
+          user_metadata: { ...profile, is_active: enabled },
+        })
       }
     }
 
-    // Update special student profile
-    if (specialEnabled !== undefined) {
-      const { data: specialProfiles } = await supabaseAdmin
-        .from('profiles')
-        .select('*')
-        .eq('section_id', sectionId)
-        .eq('role', 'student_special')
+    const missing = wanted.filter(
+      ({ role, enabled }) => enabled && !profiles.some((profile) => profile.role === role)
+    )
 
-      if (specialProfiles && specialProfiles.length > 0) {
-        for (const profile of specialProfiles) {
-          await supabaseAdmin
-            .from('profiles')
-            .update({ is_active: specialEnabled })
-            .eq('id', profile.id)
-          
-          await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
-            user_metadata: { ...profile, is_active: specialEnabled }
-          })
-        }
-      } else if (specialEnabled) {
-        // Create new special student if doesn't exist
-        const { data: section } = await supabaseAdmin.from('sections').select('*').eq('id', sectionId).single()
-        if (section) {
-          const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
-          const specialEmail = `special-${sectionCode}@ctu.edu.ph`
-          const specialPassword = generatePassword()
-
-          const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
-            email: specialEmail, password: specialPassword, email_confirm: true,
-            user_metadata: { section_id: section.id, section_name: `${section.program} ${section.year_level}${section.section_name} (Special)`, role: 'student_special' }
-          })
-          
-          if (authUser.user) {
-            await supabaseAdmin.from('profiles').insert({
-              auth_user_id: authUser.user.id,
-              section_id: section.id,
-              role: 'student_special',
-              full_name: `${section.program} ${section.year_level}${section.section_name} Special Student`,
-              is_active: true
-            })
-          }
-        }
-      }
+    if (!missing.length) {
+      return res.json({
+        success: true,
+        message: 'Roles updated',
+        data: { passwordChanged: false, accounts: [] },
+      })
     }
 
-    res.json({ success: true, message: 'Roles updated' })
+    const password = generatePassword()
+    const created = []
+
+    for (const { role, label } of missing) {
+      const email = sectionEmail(section, role)
+      const fullName = `${section.program} ${section.year_level}${section.section_name} ${
+        role === 'student_special' ? 'Special Student' : 'Student'
+      }`
+
+      const { data: authUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          section_id: section.id,
+          section_name: `${section.program} ${section.year_level}${section.section_name}`,
+          role,
+        },
+      })
+
+      if (createError || !authUser?.user) {
+        console.error(`[Server] Could not create ${label} account for ${sectionId}:`, createError?.message)
+
+        // Undo what this call already created: a section with half its accounts
+        // enabled is worse than one left exactly as it was.
+        for (const entry of created) {
+          await supabaseAdmin.auth.admin.deleteUser(entry.authUserId)
+          await supabaseAdmin.from('profiles').delete().eq('auth_user_id', entry.authUserId)
+        }
+
+        return res.status(500).json({
+          success: false,
+          message: `Could not create the ${label} account`,
+        })
+      }
+
+      const { error: profileError } = await supabaseAdmin.from('profiles').insert({
+        auth_user_id: authUser.user.id,
+        section_id: section.id,
+        role,
+        full_name: fullName,
+        is_active: true,
+      })
+
+      if (profileError) {
+        console.error(`[Server] Could not save ${label} profile for ${sectionId}:`, profileError.message)
+        await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
+
+        for (const entry of created) {
+          await supabaseAdmin.auth.admin.deleteUser(entry.authUserId)
+          await supabaseAdmin.from('profiles').delete().eq('auth_user_id', entry.authUserId)
+        }
+
+        return res.status(500).json({
+          success: false,
+          message: `Could not save the ${label} account`,
+        })
+      }
+
+      created.push({ role, email, authUserId: authUser.user.id })
+    }
+
+    /*
+       The accounts already in use are moved onto the shared password only once every
+       new account exists. Doing it the other way round would leave the section's
+       working accounts holding a password that the response — returned only on
+       success — could never tell the admin about.
+    */
+    const accounts = created.map(({ role, email }) => ({ role, email, password, section_id: sectionId }))
+
+    for (const profile of profiles) {
+      if (created.some((entry) => entry.role === profile.role)) continue
+
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, { password })
+
+      if (error) {
+        console.error(
+          `[Server] Could not move ${profile.role} account ${profile.auth_user_id} onto the shared password:`,
+          error.message
+        )
+        continue
+      }
+
+      const { data: existing } = await supabaseAdmin.auth.admin.getUserById(profile.auth_user_id)
+
+      accounts.push({
+        role: profile.role,
+        email: existing?.user?.email ?? null,
+        password,
+        section_id: sectionId,
+      })
+    }
+
+    console.log(
+      `[Server] Section ${sectionId} roles updated — ${created.length} account(s) created and the section password was reset`
+    )
+
+    res.json({
+      success: true,
+      message: 'Roles updated',
+      data: { passwordChanged: true, accounts },
+    })
   } catch (err) {
     console.error('[Server] Error updating roles:', err)
     res.status(500).json({ success: false, message: err.message || 'Failed to update roles' })
@@ -444,9 +504,10 @@ router.put('/sections/:id/roles', async (req, res) => {
  * Addresses are derived once when the section is created and are never changed,
  * so each new password is handed back against the existing email. A section can
  * own both a regular and a special-student login, so accounts are returned as a
- * list and the admin is shown one block per role. Sections with no account yet
- * get a 404 rather than an invented address — the admin creates those
- * explicitly through the add-section or roles flow.
+ * list and the admin is shown one block per role — every block carrying the same
+ * password, because the section is handed out as one set of credentials. Sections
+ * with no account yet get a 404 rather than an invented address — the admin
+ * creates those explicitly through the add-section or roles flow.
  */
 router.post('/sections/:id/regenerate-credentials', async (req, res) => {
   try {
@@ -469,6 +530,12 @@ router.post('/sections/:id/regenerate-credentials', async (req, res) => {
 
     const accounts = []
 
+    // Generated once for the section rather than inside the loop. Every account a
+    // section owns is handed out as one set of credentials, so resetting them one
+    // at a time with separate passwords would leave the section's own accounts
+    // unable to log in with each other.
+    const password = generatePassword()
+
     for (const profile of profiles) {
       // Read the address first: it is the one piece of the credential the admin
       // cannot reconstruct, and it never changes.
@@ -486,7 +553,6 @@ router.post('/sections/:id/regenerate-credentials', async (req, res) => {
         continue
       }
 
-      const password = generatePassword()
       const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
         password
       })
@@ -1046,6 +1112,222 @@ router.post('/schedules', async (req, res) => {
   }
 })
 
+/** Upper bound on one import, so a malformed file cannot tie up the server. */
+const SCHEDULE_BATCH_LIMIT = 500
+
+/*
+   The sheet numbers the days 1-7 from Sunday, which is the day a school week is
+   counted in; the column is 0-6 from Sunday, since that is what JS's Date uses.
+   The two differ by one, so the sheet's number arrives as `day` and the column's
+   is derived from it here rather than anywhere in the UI, and a spreadsheet and
+   an API caller cannot drift into meaning different days by the same number.
+*/
+const SCHEDULE_BATCH_COLUMNS = ['room_code', 'subject', 'instructor', 'day', 'start', 'end']
+
+/**
+ * Accepts the time shapes a hand-made sheet produces: 0700, 700, 07:00 and 7:00,
+ * each of them with or without AM/PM — a column Excel has formatted as a time
+ * arrives as its display text, so "7:00 PM" is common in a sheet written by
+ * someone used to 12-hour time. Returns HH:MM, or null if the value cannot be
+ * read as a real time of day. Mirrors the client's reader so the preview shows
+ * the value that will be stored.
+ */
+function normalizeTime(value) {
+  const text = String(value ?? '').trim()
+  const meridiem = /(am|pm)/i.exec(text)?.[1]?.toLowerCase()
+  const digits = (meridiem ? text.replace(/[ap]m/i, '') : text).replace(/[:\s]/g, '')
+
+  // A bare hour is only allowed alongside AM/PM, since "7" alone is not a time.
+  const hourOnly = Boolean(meridiem) && /^\d{1,2}$/.test(digits)
+  if (!hourOnly && !/^\d{3,4}$/.test(digits)) return null
+
+  let hours = digits.length === 3 ? `0${digits[0]}` : digits.padStart(2, '0').slice(0, 2)
+  const minutes = digits.length <= 2 ? '00' : digits.slice(-2)
+
+  if (meridiem) {
+    const hour = Number(hours)
+    if (hour < 1 || hour > 12) return null
+    // 12 AM is midnight and 12 PM is noon, so neither simply gains or loses 12.
+    if (meridiem === 'am') {
+      hours = hour === 12 ? '00' : hours
+    } else {
+      hours = hour === 12 ? '12' : String(hour + 12).padStart(2, '0')
+    }
+  } else if (Number(hours) > 23) {
+    return null
+  }
+
+  if (Number(minutes) > 59) return null
+
+  return `${hours}:${minutes}`
+}
+
+router.post('/schedules/batch', async (req, res) => {
+  try {
+    const { section_id: sectionId, rows } = req.body ?? {}
+    const list = Array.isArray(rows) ? rows : []
+
+    if (!sectionId) {
+      return res.status(400).json({ success: false, message: 'A section is required' })
+    }
+    if (!list.length) {
+      return res.status(400).json({ success: false, message: 'The file has no rows to import' })
+    }
+    if (list.length > SCHEDULE_BATCH_LIMIT) {
+      return res.status(400).json({
+        success: false,
+        message: `A single import is limited to ${SCHEDULE_BATCH_LIMIT} rows. Split the file and try again.`,
+      })
+    }
+
+    const { data: section } = await supabaseAdmin
+      .from('sections')
+      .select('id')
+      .eq('id', sectionId)
+      .maybeSingle()
+
+    if (!section) {
+      return res.status(400).json({ success: false, message: 'That section no longer exists' })
+    }
+
+    // Every row is read and normalised before anything is written, so a value
+    // that cannot be stored is reported rather than inserted as-is.
+    const parsed = []
+    const failed = []
+
+    for (const [index, row] of list.entries()) {
+      const label = `Row ${index + 2}`
+
+      const values = {}
+      for (const column of SCHEDULE_BATCH_COLUMNS) {
+        const value = typeof row?.[column] === 'string' ? row[column].trim() : row?.[column]
+        values[column] = value === undefined || value === null ? '' : String(value)
+      }
+
+      const day = Number(values.day)
+      const start = normalizeTime(values.start)
+      const end = normalizeTime(values.end)
+
+      const problem = !values.room_code
+        ? 'Missing room'
+        : !values.subject
+          ? 'Missing subject'
+          : !values.start || !start
+            ? `Could not read start time "${values.start}"`
+            : !values.end || !end
+              ? `Could not read end time "${values.end}"`
+              : !Number.isInteger(day) || day < 1 || day > 7
+                ? `Day must be 1 to 7, got "${values.day}"`
+                : end <= start
+                  ? 'End time is not after the start time'
+                  : null
+
+      if (problem) {
+        failed.push({ row: label, reason: problem })
+        continue
+      }
+
+      parsed.push({
+        __row: label,
+        room_code: values.room_code,
+        subject_name: values.subject,
+        instructor_name: values.instructor || null,
+        day_of_week: day - 1,
+        start_time: start,
+        end_time: end,
+      })
+    }
+
+    /*
+       Rooms are resolved once for the whole file, and one unknown room stops the
+       import entirely. A partial import would look like it worked while leaving
+       the classes that referenced the missing room unimported, and the admin would
+       have no way to tell which half landed. The unknown codes come back by name
+       so the fix is obvious rather than a matter of guessing.
+    */
+    const codes = [...new Set(parsed.map((row) => row.room_code))]
+    const { data: rooms, error: roomsError } = await supabaseAdmin
+      .from('rooms')
+      .select('id, room_code')
+      .in('room_code', codes)
+
+    if (roomsError) throw roomsError
+
+    const roomIds = new Map((rooms || []).map((room) => [room.room_code, room.id]))
+    const unknown = codes.filter((code) => !roomIds.has(code))
+
+    if (unknown.length) {
+      return res.status(400).json({
+        success: false,
+        message: `No schedules were imported. ${unknown.length === 1 ? 'Room' : 'Rooms'} ${unknown.join(', ')} ${unknown.length === 1 ? 'does' : 'do'} not exist. Check the room column against the room list, then upload the file again.`,
+      })
+    }
+
+    const created = []
+    const skipped = []
+
+    for (const row of parsed) {
+      const roomId = roomIds.get(row.room_code)
+
+      // Two classes cannot occupy one room at the same time, so the slot decides
+      // whether this row is new. limit(1) rather than maybeSingle, since nothing
+      // in the database stops two identical rows already being there.
+      const { data: clash } = await supabaseAdmin
+        .from('schedules')
+        .select('id')
+        .eq('section_id', sectionId)
+        .eq('room_id', roomId)
+        .eq('day_of_week', row.day_of_week)
+        .eq('start_time', row.start_time)
+        .limit(1)
+
+      if (clash?.length) {
+        skipped.push({
+          row: row.__row,
+          reason: 'This class is already scheduled in that room at that time',
+          schedule: { ...row, room_id: roomId, section_id: sectionId },
+        })
+        continue
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('schedules')
+        .insert({
+          section_id: sectionId,
+          room_id: roomId,
+          subject_name: row.subject_name,
+          instructor_name: row.instructor_name,
+          day_of_week: row.day_of_week,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          is_active: true,
+        })
+        .select(SCHEDULE_SELECT)
+        .single()
+
+      if (error) {
+        console.error(`[Server] Batch schedule import failed at ${row.__row}:`, error.message)
+        failed.push({ row: row.__row, reason: error.message || 'Could not create this schedule' })
+        continue
+      }
+
+      created.push({ row: row.__row, schedule: data })
+    }
+
+    console.log(
+      `[Server] Batch schedule import finished - ${created.length} created, ${skipped.length} skipped, ${failed.length} failed`
+    )
+
+    res.json({
+      success: true,
+      data: { created, skipped, failed, total: list.length },
+    })
+  } catch (err) {
+    console.error('[Server] Error importing schedules:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to import schedules' })
+  }
+})
+
 router.get('/schedules/:id', async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin.from('schedules').select(SCHEDULE_SELECT).eq('id', req.params.id).single()
@@ -1066,13 +1348,82 @@ router.put('/schedules/:id', async (req, res) => {
   }
 })
 
+/**
+ * Counts the history a schedule delete leaves without a class.
+ *
+ * Occupations hold their schedule_id and that column is ON DELETE SET NULL, so
+ * the occupation and its before/after photos are kept; they stop naming the class
+ * they were recorded for. Submissions hang off those occupations rather than off
+ * the schedule, so they are counted through the occupation ids. Nothing here is
+ * destroyed — the client's confirmation says so, and this is what backs that.
+ */
+router.get('/schedules/:id/impact', async (req, res) => {
+  try {
+    const { data: occupations, error: occupationsError } = await supabaseAdmin
+      .from('occupations')
+      .select('id')
+      .eq('schedule_id', req.params.id)
+
+    if (occupationsError) throw occupationsError
+
+    const occupationIds = (occupations ?? []).map((occupation) => occupation.id)
+
+    let submissions = 0
+    if (occupationIds.length) {
+      const { count, error: submissionsError } = await supabaseAdmin
+        .from('room_submissions')
+        .select('id', { count: 'exact', head: true })
+        .in('occupation_id', occupationIds)
+
+      if (submissionsError) throw submissionsError
+      submissions = count ?? 0
+    }
+
+    res.json({
+      success: true,
+      data: { occupations: occupationIds.length, submissions },
+    })
+  } catch (err) {
+    console.error('[Server] Error checking what a schedule owns:', err)
+    res.status(500).json({ success: false, message: 'Failed to check what this schedule owns' })
+  }
+})
+
+/**
+ * Permanently deletes a schedule.
+ *
+ * A real delete, not a deactivate: the row leaves the timetable for good. History
+ * recorded against it is not destroyed — occupations.schedule_id is ON DELETE
+ * SET NULL, so the occupation, its before/after photos and its reports all survive
+ * and only stop naming the class. The client's confirmation states that first,
+ * counted by the impact route above.
+ *
+ * Use the schedule's toggle to take a class off the timetable without ending its
+ * history, the same choice the room delete offers.
+ */
 router.delete('/schedules/:id', async (req, res) => {
   try {
-    const { error } = await supabaseAdmin.from('schedules').update({ is_active: false }).eq('id', req.params.id)
+    // PostgREST reports a delete that matched nothing as an empty result rather
+    // than an error, hence maybeSingle.
+    const { data, error } = await supabaseAdmin
+      .from('schedules')
+      .delete()
+      .eq('id', req.params.id)
+      .select('id')
+      .maybeSingle()
+
     if (error) throw error
-    res.json({ success: true, message: 'Schedule deactivated' })
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Schedule not found' })
+    }
+
+    // Logged, not written to audit_logs, to match the other permanent deletes.
+    console.log(`[Server] Schedule deleted: ${req.params.id} — occupations recorded against it keep their history and lose their class link`)
+
+    res.json({ success: true, message: 'Schedule deleted' })
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to delete schedule' })
+    console.error('[Server] Error deleting schedule:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete schedule' })
   }
 })
 
@@ -1082,9 +1433,12 @@ router.delete('/schedules/:id', async (req, res) => {
 // plural table names.
 const OCCUPATION_EMBEDS = 'section:sections(id, program, year_level, section_name), room:rooms(*), schedule:schedules(id, section_id, subject_name, instructor_name)'
 
-// The list only needs enough of each submission to draw its Before/After
-// column; the detail view fetches the full rows (image_url, notes).
-const OCCUPATION_LIST_SELECT = `*, ${OCCUPATION_EMBEDS}, room_submissions(id, submission_type, submitted_at, condition)`
+// The list carries image_url as well as the submission summary, because the
+// Before/After columns preview the photo on hover and a Done badge that reveals
+// nothing until the row is opened is a dead end. Only the URL is sent, not the
+// image bytes, so this stays a fraction of the cost of loading the rows.
+// notes is still detail-only.
+const OCCUPATION_LIST_SELECT = `*, ${OCCUPATION_EMBEDS}, room_submissions(id, submission_type, submitted_at, submitted_time, condition, image_url)`
 const OCCUPATION_DETAIL_SELECT = `*, ${OCCUPATION_EMBEDS}, room_submissions(*)`
 
 /**

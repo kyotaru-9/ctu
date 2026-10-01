@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { roomService } from '../../services/roomService'
 import { scheduleService } from '../../services/scheduleService'
 import { sectionService } from '../../services/sectionService'
-import { biEye, biPencil, biPlus, biToggleOff, biToggleOn, biTrash } from '../../utils/icons'
+import SchedulesBatchUploadModal from '../../features/schedules/SchedulesBatchUploadModal'
+import { biCloudUpload, biEye, biPencil, biPlus, biToggleOff, biToggleOn, biTrash } from '../../utils/icons'
 import { DAY_NAMES_LIST, dayName, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
 import {
   ACTIVE_STATUS,
@@ -30,6 +31,54 @@ import {
   TableCard,
 } from '../../components/ui'
 
+const IMPACT_LABELS = {
+  occupations: 'occupation',
+  submissions: 'room submission',
+}
+
+/**
+ * Names the history a schedule delete leaves behind without a class.
+ *
+ * Deliberately the opposite of the room delete's "Also deleted" list: nothing
+ * listed here is destroyed. occupations.schedule_id is ON DELETE SET NULL, so the
+ * occupation, its before/after photos and its reports are all kept — they simply
+ * stop naming the class, and the subject column reads as missing on them from then
+ * on. Labelling these as deleted would be the wrong warning.
+ */
+function UnlinkedHistory({ impact }) {
+  const affected = Object.keys(IMPACT_LABELS)
+    .map((key) => [key, impact?.[key] ?? 0])
+    .filter(([, count]) => count > 0)
+
+  if (affected.length === 0) {
+    return (
+      <p className="mt-3 text-sm text-ink-muted">
+        Nothing has been recorded against this class, so deleting it leaves no history behind.
+      </p>
+    )
+  }
+
+  return (
+    <div className="mt-4 rounded-md border border-warn/30 bg-warn-soft p-3">
+      <p className="text-xs font-semibold tracking-wide text-warn uppercase">
+        Kept, but no longer linked to a class
+      </p>
+      <ul className="mt-2 flex flex-col gap-1">
+        {affected.map(([key, count]) => (
+          <li key={key} className="text-sm text-ink">
+            {count} {IMPACT_LABELS[key]}
+            {count === 1 ? '' : 's'}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-ink-muted">
+        These records and their photos are not deleted. They stop naming the subject, so the class
+        shows as missing on them from now on.
+      </p>
+    </div>
+  )
+}
+
 const BLANK_FORM = {
   section_id: '',
   room_id: '',
@@ -46,8 +95,12 @@ export default function AdminSchedules() {
   const [rooms, setRooms] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [showBatchUpload, setShowBatchUpload] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteImpact, setDeleteImpact] = useState(null)
+  const [deleteError, setDeleteError] = useState('')
+  const [impactLoading, setImpactLoading] = useState(false)
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -217,17 +270,48 @@ export default function AdminSchedules() {
     }
   }
 
+  // Opened through here rather than straight into the dialog, so the cost is on
+  // screen before the confirm is offered — the prompt states what the delete takes
+  // with it, which it can only do if the count has already arrived.
+  const handleOpenDelete = useCallback(async (schedule) => {
+    setDeleteTarget(schedule)
+    setDeleteImpact(null)
+    setDeleteError('')
+    setImpactLoading(true)
+    try {
+      const response = await scheduleService.getDeleteImpact(schedule.id)
+      if (response.success) setDeleteImpact(response.data)
+    } catch {
+      // The delete itself reports its own failure; not knowing the count in
+      // advance is not worth blocking the dialog for.
+    } finally {
+      setImpactLoading(false)
+    }
+  }, [])
+
+  const handleCloseDelete = useCallback(() => {
+    setDeleteTarget(null)
+    setDeleteImpact(null)
+    setDeleteError('')
+    setImpactLoading(false)
+  }, [])
+
   async function handleDelete() {
     if (!deleteTarget) return
     setDeleting(true)
+    setDeleteError('')
     try {
       const response = await scheduleService.delete(deleteTarget.id)
-      if (response.success) await fetchSchedules()
-    } catch {
-      // Ignore.
+      if (response.success) {
+        handleCloseDelete()
+        await fetchSchedules()
+      } else {
+        setDeleteError(response.message || 'Failed to delete the schedule')
+      }
+    } catch (err) {
+      setDeleteError(err.response?.data?.message || 'Failed to delete the schedule')
     } finally {
       setDeleting(false)
-      setDeleteTarget(null)
     }
   }
 
@@ -237,9 +321,14 @@ export default function AdminSchedules() {
         title="Schedules"
         subtitle="Manage class schedules and room assignments"
         actions={
-          <Button variant="primary" icon={biPlus} onClick={handleOpenAdd}>
-            Add schedule
-          </Button>
+          <>
+            <Button variant="secondary" icon={biCloudUpload} onClick={() => setShowBatchUpload(true)}>
+              Batch upload
+            </Button>
+            <Button variant="primary" icon={biPlus} onClick={handleOpenAdd}>
+              Add schedule
+            </Button>
+          </>
         }
       />
 
@@ -321,7 +410,7 @@ export default function AdminSchedules() {
                         icon={biTrash}
                         label="Delete schedule"
                         tone="bad"
-                        onClick={() => setDeleteTarget(schedule)}
+                        onClick={() => handleOpenDelete(schedule)}
                       />
                     </RowActions>
                   </TD>
@@ -502,16 +591,38 @@ export default function AdminSchedules() {
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
+        onClose={handleCloseDelete}
         onConfirm={handleDelete}
         loading={deleting}
         title="Delete schedule"
         description={
           deleteTarget
-            ? `Delete the ${deleteTarget.subject_name} schedule for ${sectionLabel(deleteTarget.section)}? This cannot be undone.`
+            ? `Permanently delete the ${deleteTarget.subject_name} schedule for ${sectionLabel(deleteTarget.section)}? This cannot be undone. To take a class off the timetable without ending its history, use the toggle instead.`
             : ''
         }
         confirmLabel="Delete schedule"
+      >
+        {deleteError && (
+          <Alert tone="bad" className="mt-3">
+            {deleteError}
+          </Alert>
+        )}
+
+        {impactLoading ? (
+          <p className="mt-3 text-sm text-ink-muted">Checking what this class has recorded…</p>
+        ) : (
+          deleteImpact && <UnlinkedHistory impact={deleteImpact} />
+        )}
+      </ConfirmDialog>
+
+      {/* The section and room lists are already on this page, so the import
+          reuses them rather than fetching a second copy to validate against. */}
+      <SchedulesBatchUploadModal
+        open={showBatchUpload}
+        onClose={() => setShowBatchUpload(false)}
+        onImported={fetchSchedules}
+        sections={sections}
+        rooms={rooms}
       />
     </>
   )
