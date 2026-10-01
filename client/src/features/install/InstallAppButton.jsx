@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { isIos, useAppInstall } from '../../hooks/useAppInstall'
-import { biDeviceDesktop, biInfo, biShare } from '../../utils/icons'
+import { biInfo, biPhone, biShare } from '../../utils/icons'
 import { Alert, Button } from '../../components/ui'
 
 /**
@@ -30,7 +30,7 @@ export default function InstallAppButton({ className = '' }) {
   if (isDirect) {
     return (
       <div className={className}>
-        <Button variant="secondary" block icon={biDeviceDesktop} onClick={install}>
+        <Button variant="secondary" block icon={biPhone} onClick={install}>
           Install as an app
         </Button>
       </div>
@@ -42,7 +42,7 @@ export default function InstallAppButton({ className = '' }) {
       <Button
         variant="ghost"
         block
-        icon={isIos() ? biShare : biDeviceDesktop}
+        icon={isIos() ? biShare : biPhone}
         onClick={() => setShowHelp((value) => !value)}
       >
         {showHelp ? 'Hide install instructions' : 'Install as an app'}
