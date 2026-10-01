@@ -40,8 +40,48 @@ async function loadProfile(authUserId) {
   return { profile: { ...profile, section: section ?? null } }
 }
 
+/**
+ * Merges the auth user and the profile into the session user.
+ *
+ * `email` is taken from the auth user rather than the profile: profiles.email is
+ * nullable and nothing in this app writes it, so spreading the profile last used
+ * to overwrite a good auth address with null.
+ */
+/**
+ * Reads why a section was last deactivated, for the sign-in page to show.
+ *
+ * The reason is not a column on sections: it is the description of the most recent
+ * audit_logs entry for that section. Reading the newest status entry — rather than
+ * searching for a deactivation — means a section that has since been re-enabled
+ * reports no reason, which is correct: the hold is over.
+ *
+ * Returns null rather than throwing. This runs on a failed sign-in, and a student
+ * being told their section is inactive is more useful than a 500 about a lookup.
+ */
+async function readDeactivationReason(sectionId) {
+  if (!sectionId) return null
+
+  const { data, error } = await supabaseAdmin
+    .from('audit_logs')
+    .select('action, description')
+    .eq('entity_type', 'section')
+    .eq('entity_id', sectionId)
+    .in('action', ['section_deactivated', 'section_reactivated'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (error) {
+    console.log('[Server] Deactivation reason lookup failed:', error.message)
+    return null
+  }
+
+  if (data?.[0]?.action !== 'section_deactivated') return null
+  return data[0].description || null
+}
+
 function toSessionUser(id, email, profile) {
-  return profile ? { id, email, ...profile } : { id, email }
+  if (!profile) return { id, email }
+  return { id, ...profile, email: profile.email || email }
 }
 
 router.post('/login', async (req, res, next) => {
@@ -86,10 +126,30 @@ router.post('/login', async (req, res, next) => {
     if (!profile.is_active) {
       await supabaseAdmin.auth.signOut()
       console.log('[Server] Login failed: Account deactivated for', email)
+
+      // The client sends the reader to a dedicated page rather than showing a
+      // bare "Account is deactivated" in the form, so the response carries what
+      // that page needs: who is locked out and which section asked for it. The
+      // section is included because that is what an admin will ask for when the
+      // student calls.
+      const section = profile.section
+      const sectionLabel = section
+        ? [section.program, `${section.year_level}${section.section_name}`].filter(Boolean).join(' ')
+        : null
+
+      const reason = await readDeactivationReason(profile.section_id)
+
       return res.status(403).json({
         success: false,
         message: 'Account is deactivated',
-        error: 'Account disabled'
+        error: 'Account disabled',
+        data: {
+          email,
+          full_name: profile.full_name,
+          role: profile.role,
+          section: sectionLabel,
+          reason
+        }
       })
     }
     

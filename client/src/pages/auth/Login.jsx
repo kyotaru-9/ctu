@@ -2,9 +2,8 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { biPerson } from '../../utils/icons'
-import { Alert, Button, Card, CardBody, Input, Logo } from '../../components/ui'
-import DepthText from '../../components/DepthText'
-import bg from '../../assets/bg.jpg'
+import { Alert, Button, Card, CardBody, Input } from '../../components/ui'
+import AuthShell from '../../components/AuthShell'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -36,75 +35,35 @@ export default function Login() {
 
       navigate(redirectPath, { replace: true })
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid email or password')
+      const body = err.response?.data
+
+      // A deactivated account is a different situation from a wrong password:
+      // the credentials were right, and no amount of retrying will help. Send
+      // the reader to a page that says so and tells them who to contact, rather
+      // than leaving them retyping a password that already works.
+      if (err.response?.status === 403 && body?.error === 'Account disabled') {
+        navigate('/account-deactivated', {
+          replace: true,
+          state: { account: body.data ?? { email } }
+        })
+        return
+      }
+
+      setError(body?.message || 'Invalid email or password')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="relative min-h-dvh">
+    <AuthShell>
       {/*
-        One background for the whole page. The campus photo sits at low opacity
-        under an 85% ink wash: faint enough that its own highlights no longer
-        punch through and leave text stranded on a bright patch, dark enough to
-        carry the white CTU mark. Because it is a single dark field, both the
-        mark and the form card can share it, which is what lets the card stay on
-        the design system's white surface instead of being restyled dark.
-
-        The photo is faint texture, not the subject, so the blur and scale that
-        were covering the low-resolution source are no longer needed.
+        The kit's CardHeader is a horizontal title-bar (flex row, bottom
+        border) for "title + actions", so the stacked centred header is
+        built in the body rather than fought with overrides.
       */}
-      <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
-        <img src={bg} alt="" className="h-full w-full object-cover opacity-30" />
-        <div className="absolute inset-0 bg-ink/85" />
-      </div>
-
-      <div className="relative flex min-h-dvh flex-col items-center justify-center px-4 py-10 sm:px-6">
-        <div className="w-full max-w-sm">
-          {/*
-            Brand lockup, not the page heading, so the document keeps a single
-            h1 and it is the task itself.
-          */}
-          <div className="mb-8 flex flex-col items-center text-center">
-            <Logo size="xl" className="mb-4" />
-
-            {/*
-              DepthText ships tuned for dark backgrounds, so the stock
-              near-white face is already right; the extrusion is a deeper brand
-              blue so the letterforms read as extruded type rather than a soft
-              glow. The defaults extrude ~80px, as deep as the word is tall,
-              which reads as a tunnel, so depth and layers are cut to a ~30px
-              extrusion. autoOrbit is off so the mark sits still on a sign-in
-              screen; the pointer parallax still runs.
-            */}
-            <DepthText
-              text="CTU"
-              layers={30}
-              depth={1.05}
-              faceColor="#ffffff"
-              depthColor="#0a3d8f"
-              fontSize="clamp(2.75rem, 13vw, 5.5rem)"
-              fontWeight={900}
-              tilt={6}
-              autoOrbit={false}
-              shadow
-            />
-
-            <p className="mt-5 text-xs leading-relaxed text-white/55">
-              Cebu Technological University - Naga Extension Campus
-              <br />
-              Clean Track Update
-            </p>
-          </div>
-
-          {/*
-            The kit's CardHeader is a horizontal title-bar (flex row, bottom
-            border) for "title + actions", so the stacked centred header is
-            built in the body rather than fought with overrides.
-          */}
-          <Card>
-            <CardBody className="p-6 sm:p-7">
+      <Card>
+        <CardBody className="p-6 sm:p-7">
               <div className="mb-6 text-center">
                 <h1 className="text-xl font-semibold tracking-tight text-ink">Sign in</h1>
                 <p className="mt-1.5 text-sm text-ink-muted">Use your CTU account to continue.</p>
@@ -170,16 +129,14 @@ export default function Login() {
             </CardBody>
           </Card>
 
-          {/*
-            Plain text, not links: there are no Terms or Privacy routes or pages
-            yet, and the catch-all route redirects unknown paths back to this
-            page, so wiring the two names up would just bounce the reader off.
-          */}
-          <p className="mt-6 px-2 text-center text-xs leading-relaxed text-white/45">
-            By clicking continue, you agree to our Terms of Service and Privacy Policy.
-          </p>
-        </div>
-      </div>
-    </div>
+      {/*
+        Plain text, not links: there are no Terms or Privacy routes or pages
+        yet, and the catch-all route redirects unknown paths back to this
+        page, so wiring the two names up would just bounce the reader off.
+      */}
+      <p className="mt-6 px-2 text-center text-xs leading-relaxed text-white/45">
+        By clicking continue, you agree to our Terms of Service and Privacy Policy.
+      </p>
+    </AuthShell>
   )
 }

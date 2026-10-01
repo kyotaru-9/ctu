@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { FullPageLoader } from './components/ui'
 import Login from './pages/auth/Login'
+import AccountDeactivated from './pages/auth/AccountDeactivated'
 import AdminLayout from './layouts/AdminLayout'
 import StudentLayout from './layouts/StudentLayout'
 import SpecialStudentLayout from './layouts/SpecialStudentLayout'
@@ -56,6 +57,7 @@ function AppRoutes() {
     <Routes>
       {/* Public Routes */}
       <Route path="/login" element={<Login />} />
+      <Route path="/account-deactivated" element={<AccountDeactivated />} />
       <Route path="/scan/:qrToken" element={<QRScan />} />
       
       {/* Admin Routes */}
