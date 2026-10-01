@@ -127,7 +127,6 @@ export default function StudentSubmit() {
         setError(response.message || 'Submission failed. Please try again.')
       }
     } catch (err) {
-      console.error('Submission error:', err)
       setError(err.response?.data?.message || 'Failed to submit. Please try again.')
     } finally {
       setUploading(false)

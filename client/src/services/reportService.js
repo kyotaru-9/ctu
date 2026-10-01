@@ -8,6 +8,17 @@ const getRolePrefix = () => {
   return '/student'
 }
 
+/**
+ * Report reasons are shared reference data that every role may read, so an admin
+ * has to ask for them from the admin route. getRolePrefix falls back to
+ * /student, and the student-only guard on that route answers an admin with a 403
+ * — which is why the settings page loaded its reason list empty.
+ */
+const getReasonPrefix = () => {
+  if (authService.getUserRole() === 'admin') return '/admin'
+  return getRolePrefix()
+}
+
 export const reportService = {
   async getAll(params = {}) {
     const response = await api.get('/admin/reports', { params })
@@ -38,14 +49,8 @@ export const reportService = {
     return response.data
   },
 
-  async getByIdStudent(id) {
-    const prefix = getRolePrefix()
-    const response = await api.get(`${prefix}/reports/${id}`)
-    return response.data
-  },
-
   async getReasons() {
-    const prefix = getRolePrefix()
+    const prefix = getReasonPrefix()
     const response = await api.get(`${prefix}/report-reasons`)
     return response.data
   },

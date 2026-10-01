@@ -161,9 +161,6 @@ router.get('/schedule/room/:roomId', async (req, res) => {
 
 // Student Submissions
 router.post('/submissions/before', upload.single('image'), async (req, res) => {
-  console.log('POST /submissions/before - body:', req.body);
-  console.log('POST /submissions/before - file:', req.file ? { originalname: req.file.originalname, mimetype: req.file.mimetype, size: req.file.size } : 'no file');
-  console.log('POST /submissions/before - user:', req.user ? { id: req.user.id, section_id: req.user.section_id } : 'no user');
   try {
     const { room_id, schedule_id, condition, notes } = req.body
     const file = req.file

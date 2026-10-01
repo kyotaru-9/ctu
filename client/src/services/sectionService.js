@@ -2,23 +2,17 @@ import api from './api'
 
 export const sectionService = {
   async getAll(params = {}) {
-    console.log('[sectionService] getAll called with params:', params)
     const response = await api.get('/admin/sections', { params })
-    console.log('[sectionService] getAll response:', response.data)
     return response.data
   },
 
   async getById(id) {
-    console.log('[sectionService] getById called with id:', id)
     const response = await api.get(`/admin/sections/${id}`)
-    console.log('[sectionService] getById response:', response.data)
     return response.data
   },
 
   async create(data) {
-    console.log('[sectionService] create called with data:', data)
     const response = await api.post('/admin/sections', data)
-    console.log('[sectionService] create response:', response.data)
     return response.data
   },
 
@@ -33,16 +27,12 @@ export const sectionService = {
   },
 
   async update(id, data) {
-    console.log('[sectionService] update called with id:', id, 'data:', data)
     const response = await api.put(`/admin/sections/${id}`, data)
-    console.log('[sectionService] update response:', response.data)
     return response.data
   },
 
   async delete(id) {
-    console.log('[sectionService] delete called with id:', id)
     const response = await api.delete(`/admin/sections/${id}`)
-    console.log('[sectionService] delete response:', response.data)
     return response.data
   },
 
@@ -74,11 +64,14 @@ export const sectionService = {
   /**
    * Resets the password on every account the section owns and returns the new
    * credentials against the existing email addresses.
+   *
+   * The response carries live passwords, which is exactly why nothing here logs
+   * it: a console entry survives in devtools history and on any machine that
+   * captures console output, and a logged password is a password an attacker can
+   * read without ever needing to guess one.
    */
   async regenerateCredentials(id) {
-    console.log('[sectionService] regenerateCredentials called with id:', id)
     const response = await api.post(`/admin/sections/${id}/regenerate-credentials`)
-    console.log('[sectionService] regenerateCredentials response:', response.data)
     return response.data
   }
 }

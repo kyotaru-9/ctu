@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { auditService } from '../../services/auditService'
 import { formatDate, formatDateTime } from '../../lib/format'
+import { biCalendar, biTrash } from '../../utils/icons'
+import AuditLogCleanupModal from '../../features/audit/AuditLogCleanupModal'
+import AuditLogDayPickerModal from '../../features/audit/AuditLogDayPickerModal'
 import {
   ActionButton,
   Alert,
@@ -24,13 +27,18 @@ export default function AdminAuditLogs() {
   const [auditLogs, setAuditLogs] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selected, setSelected] = useState(null)
+  const [showCleanup, setShowCleanup] = useState(false)
+  const [showDayPicker, setShowDayPicker] = useState(false)
+  const [viewDate, setViewDate] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   const fetchAuditLogs = useCallback(async () => {
     setLoading(true)
     try {
-      const response = await auditService.getAll()
+      // A chosen day is a different query, not a filter over the latest 100 —
+      // otherwise a day older than that page would come back empty.
+      const response = await auditService.getAll(viewDate ? { date: viewDate } : {})
       if (response.success) {
         setAuditLogs(response.data)
       } else {
@@ -41,7 +49,7 @@ export default function AdminAuditLogs() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [viewDate])
 
   useEffect(() => {
     fetchAuditLogs()
@@ -60,7 +68,20 @@ export default function AdminAuditLogs() {
 
   return (
     <>
-      <PageHeader title="Audit logs" subtitle="Track system activity and administrative actions" />
+      <PageHeader
+        title="Audit logs"
+        subtitle="Track system activity and administrative actions"
+        actions={
+          <>
+            <Button variant="secondary" icon={biCalendar} onClick={() => setShowDayPicker(true)}>
+              View logs by date
+            </Button>
+            <Button variant="secondary" icon={biTrash} onClick={() => setShowCleanup(true)}>
+              Clean up old logs
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
@@ -68,9 +89,30 @@ export default function AdminAuditLogs() {
         </Alert>
       )}
 
+      {/*
+        The day the table is showing. Without it the table is the latest 100
+        entries, so the table title has to say which of the two the reader is
+        looking at — an empty table under "System activity" would otherwise read
+        as "nothing happened" when it may only mean "not on this page".
+      */}
+      {viewDate && (
+        <Alert
+          tone="info"
+          className="mb-5"
+          onDismiss={() => setViewDate(null)}
+          title={`Showing ${formatDate(viewDate)} only`}
+        >
+          Everything recorded on this day, not just the most recent entries.
+        </Alert>
+      )}
+
       <TableCard
-        title="System activity"
-        subtitle={`${filteredLogs.length} of ${auditLogs.length} entries`}
+        title={viewDate ? `Activity on ${formatDate(viewDate)}` : 'System activity'}
+        subtitle={
+          viewDate
+            ? `${filteredLogs.length} ${filteredLogs.length === 1 ? 'entry' : 'entries'}`
+            : `${filteredLogs.length} of ${auditLogs.length} entries`
+        }
         search={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Search user, action, entity…"
@@ -81,7 +123,11 @@ export default function AdminAuditLogs() {
             icon="bi-journal-text"
             title="No activity found"
             description={
-              searchTerm ? 'No entries match your search.' : 'Administrative actions will appear here.'
+              searchTerm
+                ? 'No entries match your search.'
+                : viewDate
+                  ? 'Nothing was recorded on this day.'
+                  : 'Administrative actions will appear here.'
             }
           />
         }
@@ -128,6 +174,21 @@ export default function AdminAuditLogs() {
           </Table>
         </ScrollX>
       </TableCard>
+
+      <AuditLogDayPickerModal
+        open={showDayPicker}
+        onClose={() => setShowDayPicker(false)}
+        onPick={(day) => {
+          setViewDate(day)
+          setSearchTerm('')
+        }}
+      />
+
+      <AuditLogCleanupModal
+        open={showCleanup}
+        onClose={() => setShowCleanup(false)}
+        onDeleted={fetchAuditLogs}
+      />
 
       <Modal
         open={Boolean(selected)}

@@ -308,7 +308,6 @@ router.get('/report-reasons', async (req, res) => {
 
 // Alias for submissions/my -> submissions
 router.get('/submissions/my', async (req, res) => {
-  console.log('[Server] /submissions/my - user:', req.user ? { id: req.user.id, section_id: req.user.section_id, role: req.user.role } : 'no user');
   try {
     const { data, error } = await supabaseAdmin.from('room_submissions').select(HISTORY_SELECT).eq('section_id', req.user.section_id).order('submitted_at', { ascending: false })
     if (error) throw error

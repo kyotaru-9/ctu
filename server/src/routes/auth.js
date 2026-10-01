@@ -34,7 +34,7 @@ async function loadProfile(authUserId) {
     .maybeSingle()
 
   if (sectionError) {
-    console.log('[Server] Section lookup failed for profile', profile.id, '-', sectionError.message)
+    console.error('[Server] Section lookup failed for profile', profile.id, '-', sectionError.message)
   }
 
   return { profile: { ...profile, section: section ?? null } }
@@ -71,7 +71,7 @@ async function readDeactivationReason(sectionId) {
     .limit(1)
 
   if (error) {
-    console.log('[Server] Deactivation reason lookup failed:', error.message)
+    console.error('[Server] Deactivation reason lookup failed:', error.message)
     return null
   }
 

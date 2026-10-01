@@ -45,13 +45,11 @@ router.get('/dashboard', async (req, res) => {
 // Sections
 router.get('/sections', async (req, res) => {
   try {
-    console.log('[Server] GET /sections - fetching sections')
     const { data, error } = await supabaseAdmin.from('sections').select('*').order('created_at', { ascending: false })
     if (error) {
       console.error('[Server] Supabase error fetching sections:', error)
       throw error
     }
-    console.log('[Server] Sections fetched:', data?.length)
     res.json({ success: true, data })
   } catch (err) {
     console.error('[Server] Error fetching sections:', err)
@@ -1378,13 +1376,202 @@ router.get('/analytics/trends', async (req, res) => {
 })
 
 // Audit Logs
+/**
+ * Audit log entries, newest first.
+ *
+ * With no `date`, the latest 100 — the table view, where an older entry is only
+ * reachable by picking its day. With `date` and the caller's `offset`, every
+ * entry from that local calendar day, which is how the day browser shows a day
+ * that has fallen out of the most recent 100. The same window arithmetic as the
+ * per-day counts keeps the two views agreeing on what a day contains.
+ */
 router.get('/audit-logs', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('audit_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(100)
+    const { date, offset } = req.query
+
+    const select = '*, profiles(full_name)'
+
+    if (date) {
+      if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ success: false, message: 'A date of YYYY-MM-DD is required' })
+      }
+
+      const offsetMinutes = Number(offset)
+      if (!Number.isFinite(offsetMinutes) || Math.abs(offsetMinutes) > 14 * 60) {
+        return res.status(400).json({ success: false, message: 'A valid UTC offset is required' })
+      }
+
+      const startUtc = new Date(`${date}T00:00:00.000Z`).getTime() - offsetMinutes * 60_000
+
+      const { data, error } = await supabaseAdmin
+        .from('audit_logs')
+        .select(select)
+        .gte('created_at', new Date(startUtc).toISOString())
+        .lt('created_at', new Date(startUtc + 24 * 60 * 60 * 1000).toISOString())
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      return res.json({ success: true, data })
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('audit_logs')
+      .select(select)
+      .order('created_at', { ascending: false })
+      .limit(100)
+
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {
+    console.error('[Server] Error loading audit logs:', err)
     res.status(500).json({ success: false, message: 'Failed to load audit logs' })
+  }
+})
+
+/**
+ * Entry counts per calendar day, so the cleanup calendar can mark which days
+ * have anything to delete.
+ *
+ * `offset` is the client's UTC offset in minutes, the same one its table view
+ * renders dates with. Grouping in UTC instead would split a local day across
+ * two cells for anyone east or west of Greenwich — at UTC+8 the last eight hours
+ * of a working day would land in the next day's bucket, and the admin would be
+ * shown a count that does not match the rows underneath it.
+ *
+ * Only the timestamp column is read, and PostgREST cannot GROUP BY, so the
+ * bucketing happens here. That is fine at this table's size; if it ever grew to
+ * millions of rows a stored day column or a database view would be the better
+ * shape.
+ */
+router.get('/audit-logs/dates', async (req, res) => {
+  try {
+    const offsetMinutes = Number(req.query.offset)
+    if (!Number.isFinite(offsetMinutes) || Math.abs(offsetMinutes) > 14 * 60) {
+      return res.status(400).json({ success: false, message: 'A valid UTC offset is required' })
+    }
+
+    const { data, error } = await supabaseAdmin.from('audit_logs').select('created_at')
+    if (error) throw error
+
+    const buckets = new Map()
+    for (const row of data ?? []) {
+      const local = new Date(new Date(row.created_at).getTime() + offsetMinutes * 60_000)
+      const day = local.toISOString().slice(0, 10)
+      buckets.set(day, (buckets.get(day) ?? 0) + 1)
+    }
+
+    const dates = [...buckets.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => b.date.localeCompare(a.date))
+
+    res.json({ success: true, data: { dates, total: data?.length ?? 0 } })
+  } catch (err) {
+    console.error('[Server] Error counting audit log days:', err)
+    res.status(500).json({ success: false, message: 'Failed to load audit log history' })
+  }
+})
+
+/**
+ * Permanently deletes audit log entries, in bulk.
+ *
+ * Takes a list of local calendar `dates` plus the same `offset` the counts were
+ * grouped with, and works out the UTC windows itself, so the days the admin
+ * picked are the days that go. `before` also clears everything older than the
+ * earliest of them, which is the usual way to bring a growing table back under
+ * control.
+ *
+ * The dates are merged into one range before deleting. Picking three scattered
+ * days therefore costs one query rather than three, and — more importantly —
+ * there is no window in which a second request could land between two partial
+ * deletes and leave the table in a state neither request intended.
+ *
+ * There is no undo, so the exact count comes back for the client to state in its
+ * confirmation.
+ */
+router.delete('/audit-logs', async (req, res) => {
+  try {
+    const { dates, before, offset } = req.body ?? {}
+    const list = Array.isArray(dates) ? dates : typeof dates === 'string' ? [dates] : []
+
+    const valid = list.filter((day) => typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day))
+    if (!valid.length) {
+      return res.status(400).json({ success: false, message: 'At least one date of YYYY-MM-DD is required' })
+    }
+    if (list.length > 366) {
+      return res.status(400).json({ success: false, message: 'Select 366 days or fewer' })
+    }
+
+    const offsetMinutes = Number(offset)
+    if (!Number.isFinite(offsetMinutes) || Math.abs(offsetMinutes) > 14 * 60) {
+      return res.status(400).json({ success: false, message: 'A valid UTC offset is required' })
+    }
+
+    // Keys are zero-padded, so lexical order is chronological order.
+    const sorted = [...new Set(valid)].sort()
+    const DAY_MS = 24 * 60 * 60 * 1000
+    const toUtc = (day) => new Date(`${day}T00:00:00.000Z`).getTime() - offsetMinutes * 60_000
+
+    /*
+       Adjacent days are merged into a single window so a shift-drag across a
+       week is one statement, but a gap in the selection stays a gap. Spanning
+       earliest-to-latest instead would silently sweep in every unmarked day in
+       between, which is not what the confirm dialog counted.
+    */
+    const windows = []
+    for (const day of sorted) {
+      const start = toUtc(day)
+      const last = windows[windows.length - 1]
+      if (last && start <= last.end) {
+        last.end = start + DAY_MS
+      } else {
+        windows.push({ start, end: start + DAY_MS })
+      }
+    }
+
+    let deleted = 0
+
+    if (before) {
+      /*
+         "On and before" is inclusive of the earliest selected day, so the bound
+         is the end of that day rather than its start. It carries no lower bound:
+         the two modes are opposite windows, and applying both here would ask for
+         `created_at >= X AND created_at < X`, matching nothing.
+      */
+      const endIso = new Date(toUtc(sorted[0]) + DAY_MS).toISOString()
+      const { data, error } = await supabaseAdmin
+        .from('audit_logs')
+        .delete()
+        .lt('created_at', endIso)
+        .select('id')
+      if (error) throw error
+      deleted = data?.length ?? 0
+    } else {
+      for (const { start, end } of windows) {
+        const { data, error } = await supabaseAdmin
+          .from('audit_logs')
+          .delete()
+          .gte('created_at', new Date(start).toISOString())
+          .lt('created_at', new Date(end).toISOString())
+          .select('id')
+        if (error) throw error
+        deleted += data?.length ?? 0
+      }
+    }
+
+    // An audit-log delete is an audit event in itself, so it is recorded the way
+    // the batch and credential operations are rather than as an error.
+    console.log(
+      `[Server] Deleted ${deleted} audit log entr${deleted === 1 ? 'y' : 'ies'}${before ? ' before' : ''} ${sorted.join(', ')}`
+    )
+
+    res.json({
+      success: true,
+      message: 'Audit log entries deleted',
+      data: { deleted, dates: sorted, before: Boolean(before) }
+    })
+  } catch (err) {
+    console.error('[Server] Error deleting audit logs:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete audit logs' })
   }
 })
 

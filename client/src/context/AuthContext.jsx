@@ -18,8 +18,10 @@ export function AuthProvider({ children }) {
         localStorage.setItem('user_profile', JSON.stringify(currentUser))
       }
       setUser(currentUser)
-    } catch (error) {
-      console.log('[AuthContext] checkAuth failed:', error.message)
+    } catch {
+      // A rejected or expired token just means signed out; there is nothing to
+      // report to the page and nothing worth writing to the console, which is
+      // readable by anyone with the device.
       setUser(null)
     } finally {
       setLoading(false)
@@ -29,12 +31,6 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const userData = await authService.login(email, password)
     const userProfile = userData.user
-    console.log('[AuthContext] Login successful:', { 
-      userId: userProfile?.id, 
-      email: userProfile?.email, 
-      role: userProfile?.role,
-      section_id: userProfile?.section_id
-    })
     setUser(userProfile)
     return userProfile
   }

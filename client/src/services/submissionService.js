@@ -9,13 +9,10 @@ const getRolePrefix = () => {
 }
 
 const postWithProgress = async (url, data, onProgress) => {
-  console.log('Posting to:', url);
-  console.log('FormData keys:', [...data.keys()]);
   const response = await api.post(url, data, {
     headers: { 'Content-Type': 'multipart/form-data' },
     onUploadProgress: onProgress
   })
-  console.log('Response:', response.data);
   return response.data
 }
 

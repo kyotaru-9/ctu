@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { reportService } from '../../services/reportService'
+import AuditLogCleanupModal from '../../features/audit/AuditLogCleanupModal'
 import { biCheck, biPencil, biPlus, biTrash, biX } from '../../utils/icons'
 import {
   ActionButton,
@@ -41,6 +42,7 @@ export default function AdminSettings() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [showAuditCleanup, setShowAuditCleanup] = useState(false)
 
   const [general, setGeneral] = useState(GENERAL_DEFAULTS)
   const [security, setSecurity] = useState(SECURITY_DEFAULTS)
@@ -337,24 +339,30 @@ export default function AdminSettings() {
           </CardHeader>
           <CardBody>
             <Alert tone="warn" className="mb-4">
-              Maintenance actions are not wired up to the API yet.
+              Rebuilding and verifying are not wired up to the API yet. Audit log cleanup is.
             </Alert>
             <div className="flex flex-col gap-2">
               <Button variant="secondary" icon="bi bi-arrow-repeat" disabled>
                 Rebuild compliance records
               </Button>
-              <Button variant="secondary" icon="bi bi-arrow-repeat" disabled>
+              <Button variant="secondary" icon="bi bi-arrow-clockwise" disabled>
                 Refresh materialized views
               </Button>
               <Button variant="secondary" icon="bi bi-shield-check" disabled>
                 Verify RLS policies
               </Button>
-              <Button variant="danger-outline" icon={biTrash} disabled>
+              <Button variant="danger-outline" icon={biTrash} onClick={() => setShowAuditCleanup(true)}>
                 Clean up old audit logs
               </Button>
             </div>
           </CardBody>
         </Card>
+
+        <AuditLogCleanupModal
+          open={showAuditCleanup}
+          onClose={() => setShowAuditCleanup(false)}
+        />
+
       </div>
 
       <ConfirmDialog
