@@ -65,7 +65,7 @@ router.get('/dashboard', async (req, res) => {
     const [scheduleRes, submissionsRes, reportsRes] = await Promise.all([
       supabaseAdmin.from('schedules').select('id, section_id, room_id, subject_name, instructor_name, day_of_week, start_time, end_time, is_active, created_at, updated_at').eq('section_id', sectionId).eq('day_of_week', today).eq('is_active', true).order('start_time'),
       supabaseAdmin.from('room_submissions').select('id, occupation_id, section_id, room_id, submission_type, image_url, submitted_at, submitted_time, condition, notes, submitted_by, created_at').eq('section_id', sectionId).gte('submitted_at', todayStr),
-      supabaseAdmin.from('reports').select('id, section_id, room_id, occupation_id, reported_by, reason_id, other_reason, description, image_url, status, admin_note, reported_at, reviewed_at, reviewed_by, created_at, updated_at').eq('section_id', sectionId).order('reported_at', { ascending: false }).limit(5)
+      supabaseAdmin.from('reports').select('*, room:rooms(*), reason:report_reasons(*)').eq('section_id', sectionId).order('reported_at', { ascending: false }).limit(5)
     ])
 
     const todaysSchedule = scheduleRes.data || []
@@ -86,20 +86,6 @@ router.get('/dashboard', async (req, res) => {
       sections: sectionsData.data?.find(s => s.id === schedule.section_id) || null
     }))
 
-    // Fetch related data for reports
-    const reportRoomIds = [...new Set(reports.map(r => r.room_id))]
-    const reportReasonIds = [...new Set(reports.map(r => r.reason_id))]
-    const [reportRoomsData, reportReasonsData] = await Promise.all([
-      supabaseAdmin.from('rooms').select('id, room_code, room_name, building, floor').in('id', reportRoomIds),
-      supabaseAdmin.from('report_reasons').select('id, name, description').in('id', reportReasonIds)
-    ])
-
-    const enrichedReports = reports.map(report => ({
-      ...report,
-      rooms: reportRoomsData.data?.find(r => r.id === report.room_id) || null,
-      report_reasons: reportReasonsData.data?.find(r => r.id === report.reason_id) || null
-    }))
-
     const before = submissions.find(s => s.submission_type === 'before')
     const after = submissions.find(s => s.submission_type === 'after')
 
@@ -108,7 +94,7 @@ router.get('/dashboard', async (req, res) => {
       data: {
         todaysSchedule: enrichedSchedule,
         submissionStatus: { before, after },
-        recentReports: enrichedReports
+        recentReports: reports
       }
     })
   } catch (err) {
@@ -340,33 +326,19 @@ router.get('/submissions', async (req, res) => {
 })
 
 // Student Reports
+// Aliased to `room`/`reason` so the embeds land on the singular keys the reports
+// table, details modal and dashboard read. An unaliased embed comes back under
+// the table name, which left the Room and Reason columns empty.
 router.get('/reports', async (req, res) => {
   try {
-    const { data: reports, error } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('reports')
-      .select('id, section_id, room_id, occupation_id, reported_by, reason_id, other_reason, description, image_url, status, admin_note, reported_at, reviewed_at, reviewed_by, created_at, updated_at')
+      .select('*, room:rooms(*), reason:report_reasons(*)')
       .eq('section_id', req.user.section_id)
       .order('reported_at', { ascending: false })
-    
+
     if (error) throw error
-
-    // Fetch related data separately
-    const roomIds = [...new Set(reports.map(r => r.room_id))]
-    const reasonIds = [...new Set(reports.map(r => r.reason_id))]
-    
-    const [roomsData, reasonsData] = await Promise.all([
-      supabaseAdmin.from('rooms').select('id, room_code, room_name, building, floor').in('id', roomIds),
-      supabaseAdmin.from('report_reasons').select('id, name, description').in('id', reasonIds)
-    ])
-
-    // Merge the data
-    const enrichedReports = reports.map(report => ({
-      ...report,
-      rooms: roomsData.data?.find(r => r.id === report.room_id) || null,
-      report_reasons: reasonsData.data?.find(r => r.id === report.reason_id) || null
-    }))
-
-    res.json({ success: true, data: enrichedReports })
+    res.json({ success: true, data })
   } catch (err) {
     console.error('Reports error:', err)
     res.status(500).json({ success: false, message: 'Failed to load reports' })
