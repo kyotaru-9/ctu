@@ -62,6 +62,12 @@
     'Inter var', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo, Consolas, monospace;
+  /*
+     Wordmark face. Archivo Black is a single-weight (400) heavy sans, so it is
+     never asked to go bold. Self-hosted: the app makes no third-party requests,
+     and the file is the latin subset at 18 KB.
+  */
+  --font-display: 'Archivo Black', 'Inter var', 'Inter', ui-sans-serif, system-ui, sans-serif;
 
   /* --- Motion ------------------------------------------------------------ */
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
@@ -70,6 +76,19 @@
 /* ==========================================================================
    Base
    ========================================================================== */
+
+/*
+   The wordmark face. Loaded here rather than in index.html so it travels with
+   the stylesheet; `swap` keeps the wordmark readable in the system face for the
+   moment the file takes to arrive, which is better than a flash of nothing.
+*/
+@font-face {
+  font-family: 'Archivo Black';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/archivo-black-latin.woff2') format('woff2');
+}
 
 @layer base {
   html {

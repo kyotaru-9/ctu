@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { biPerson } from '../../utils/icons'
 import { Alert, Button, Card, CardBody, Input } from '../../components/ui'
+import InstallAppButton from '../../features/install/InstallAppButton'
 import AuthShell from '../../components/AuthShell'
 
 export default function Login() {
@@ -57,84 +58,84 @@ export default function Login() {
 
   return (
     <AuthShell>
-      {/*
-        The kit's CardHeader is a horizontal title-bar (flex row, bottom
-        border) for "title + actions", so the stacked centred header is
-        built in the body rather than fought with overrides.
-      */}
       <Card>
         <CardBody className="p-6 sm:p-7">
-              <div className="mb-6 text-center">
-                <h1 className="text-xl font-semibold tracking-tight text-ink">Sign in</h1>
-                <p className="mt-1.5 text-sm text-ink-muted">Use your CTU account to continue.</p>
-              </div>
+          <div className="mb-6 text-center">
+            <h1 className="text-lg font-semibold tracking-tight text-ink">Sign in</h1>
+            <p className="mt-1 text-sm text-ink-muted">Use your CTU account to continue.</p>
+          </div>
 
-              {error && (
-                <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
-                  {error}
-                </Alert>
-              )}
+          {error && (
+            <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
+              {error}
+            </Alert>
+          )}
 
-              <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
-                <Input
-                  id="email"
-                  type="email"
-                  label="Email address"
-                  icon={biPerson}
-                  placeholder="you@ctu.edu.ph"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  autoComplete="email"
+          <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+            <Input
+              id="email"
+              type="email"
+              label="Email address"
+              icon={biPerson}
+              placeholder="you@ctu.edu.ph"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+              disabled={loading}
+              required
+            />
+
+            <div>
+              <label
+                htmlFor="password"
+                className="mb-1.5 block text-[0.8125rem] font-medium text-ink"
+              >
+                Password
+              </label>
+              <div className="relative">
+                <i
+                  className="bi bi-lock-fill pointer-events-none absolute top-1/2 start-3 -translate-y-1/2 text-sm text-ink-subtle"
+                  aria-hidden="true"
+                />
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
                   disabled={loading}
                   required
+                  className="field ps-9 pe-16"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  disabled={loading}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  className="absolute top-1/2 end-1.5 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </div>
 
-                <div>
-                  <label htmlFor="password" className="mb-1.5 block text-[0.8125rem] font-medium text-ink">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <i
-                      className="bi bi-lock-fill pointer-events-none absolute top-1/2 start-3 -translate-y-1/2 text-sm text-ink-subtle"
-                      aria-hidden="true"
-                    />
-                    <input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      autoComplete="current-password"
-                      disabled={loading}
-                      required
-                      className="field ps-9 pe-16"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((value) => !value)}
-                      disabled={loading}
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      aria-pressed={showPassword}
-                      className="absolute top-1/2 end-1.5 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
-                    >
-                      {showPassword ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-                </div>
+            <Button type="submit" variant="primary" size="lg" block loading={loading}>
+              {loading ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </form>
+        </CardBody>
+      </Card>
 
-                <Button type="submit" variant="primary" size="lg" block loading={loading}>
-                  {loading ? 'Signing in…' : 'Sign in'}
-                </Button>
-              </form>
-            </CardBody>
-          </Card>
+      <InstallAppButton className="mt-4" />
 
       {/*
         Plain text, not links: there are no Terms or Privacy routes or pages
-        yet, and the catch-all route redirects unknown paths back to this
+        yet, and the catch-all route redirects unknown paths back to the login
         page, so wiring the two names up would just bounce the reader off.
       */}
-      <p className="mt-6 px-2 text-center text-xs leading-relaxed text-white/45">
+      <p className="mt-6 px-2 text-center text-xs leading-relaxed text-ink-subtle">
         By clicking continue, you agree to our Terms of Service and Privacy Policy.
       </p>
     </AuthShell>

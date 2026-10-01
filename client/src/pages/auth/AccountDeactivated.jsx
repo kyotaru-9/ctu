@@ -60,10 +60,10 @@ export default function AccountDeactivated() {
             </span>
 
             <div className="min-w-0">
-              <h1 className="text-xl font-semibold tracking-tight text-ink">
+              <h1 className="text-lg font-semibold tracking-tight text-ink">
                 Your account is on hold
               </h1>
-              <p className="mt-1.5 text-sm text-ink-muted">
+              <p className="mt-1 text-sm text-ink-muted">
                 {who ? <span className="font-medium text-ink">{who}</span> : 'This account'} has been
                 deactivated by an administrator.
               </p>
@@ -116,43 +116,37 @@ export default function AccountDeactivated() {
           )}
 
           {/*
-            Contact details are placeholders. There is no support address in the
-            project to read from, and a plausible-looking but wrong address is
-            worse than none, so the page names the office and the two routes that
-            reach a human.
+            Named rather than given a contact detail. There is no support address
+            in the project to read from, and a plausible-looking but wrong one is
+            worse than none, so the page lists the two routes that reach a human.
           */}
-          <div className="mt-6 rounded-md border border-accent/20 bg-accent-soft p-4">
-            <p className="text-sm font-medium text-accent-ink">Contact your admin for support</p>
-            <ul className="mt-2 flex flex-col gap-1.5 text-sm text-ink">
+          <div className="mt-5 rounded-md border border-line bg-surface-sunken p-4">
+            <p className="text-sm font-medium text-ink">Contact your admin for support</p>
+            <ul className="mt-2 flex flex-col gap-1.5 text-sm text-ink-muted">
               <li className="flex items-start gap-2">
                 <i
-                  className="bi bi-person-badge mt-0.5 text-ink-subtle"
+                  className="bi bi-person-badge mt-0.5 shrink-0 text-ink-subtle"
                   aria-hidden="true"
-                  size="sm"
                 />
                 <span>
-                  Your <strong>section representative</strong> (the section mayor), who can ask the
-                  admin to switch your section back on.
+                  Your <strong className="font-medium text-ink">section representative</strong> (the
+                  section mayor), who can ask the admin to switch your section back on.
                 </span>
               </li>
               <li className="flex items-start gap-2">
-                <i
-                  className="bi bi-building mt-0.5 text-ink-subtle"
-                  aria-hidden="true"
-                  size="sm"
-                />
+                <i className="bi bi-building mt-0.5 shrink-0 text-ink-subtle" aria-hidden="true" />
                 <span>
-                  The <strong>CTU campus office</strong>, if your section is active and you are
-                  still locked out.
+                  The <strong className="font-medium text-ink">CTU campus office</strong>, if your
+                  section is active and you are still locked out.
                 </span>
               </li>
             </ul>
-            <p className="mt-3 text-xs text-ink-muted">
+            <p className="mt-3 text-xs text-ink-subtle">
               Quote the section name above when you get in touch — it is how the account is found.
             </p>
           </div>
 
-          <Button variant="primary" size="lg" block className="mt-6" onClick={() => navigate('/login')}>
+          <Button variant="secondary" size="lg" block className="mt-6" onClick={() => navigate('/login')}>
             Back to sign in
           </Button>
         </CardBody>
