@@ -16,8 +16,12 @@ export default defineConfig({
       injectRegister: null,
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'CTU Clean Track',
-        short_name: 'CTU Clean Track',
+        // Both names are CTU, not the product name. This is what the launcher
+        // shows: `short_name` under the home screen icon and on Windows the Start
+        // menu, `name` in the install prompt and the window title. The document
+        // title was already CTU, so this makes the installed name match the tab.
+        name: 'CTU',
+        short_name: 'CTU',
         description:
           'Classroom cleanliness monitoring for Cebu Technological University - Naga Extension Campus.',
         // Relative, so the app works when served from a subpath as well as root.
