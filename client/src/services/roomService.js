@@ -25,6 +25,25 @@ export const roomService = {
     return response.data
   },
 
+/**
+   * Creates many rooms in one request. `rows` holds already-mapped room records —
+   * the spreadsheet is parsed in the browser so the admin sees a preview before
+   * anything is written.
+   */
+  async batchCreate(rows) {
+    const response = await api.post('/admin/rooms/batch', { rows })
+    return response.data
+  },
+
+  /**
+   * Row counts for everything a hard delete would cascade into, so the
+   * confirmation can state the cost before it happens.
+   */
+  async getDeleteImpact(id) {
+    const response = await api.get(`/admin/rooms/${id}/impact`)
+    return response.data
+  },
+
   async update(id, data) {
     const response = await api.put(`/admin/rooms/${id}`, data)
     return response.data
