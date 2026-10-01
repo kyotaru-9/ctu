@@ -22,6 +22,16 @@ export const sectionService = {
     return response.data
   },
 
+  /**
+   * Creates many sections in one request. `rows` holds already-mapped section
+   * records — the spreadsheet is parsed in the browser so the admin sees a
+   * preview before anything is written.
+   */
+  async batchCreate(rows) {
+    const response = await api.post('/admin/sections/batch', { rows })
+    return response.data
+  },
+
   async update(id, data) {
     console.log('[sectionService] update called with id:', id, 'data:', data)
     const response = await api.put(`/admin/sections/${id}`, data)
@@ -45,10 +55,19 @@ export const sectionService = {
     return response.data
   },
 
-  async toggleStatus(id) {
-    console.log('[sectionService] toggleStatus called with id:', id)
-    const response = await api.patch(`/admin/sections/${id}/status`)
-    console.log('[sectionService] toggleStatus response:', response.data)
+  /**
+   * Enables or disables a section, and the student logins it owns. The value is
+   * sent explicitly so the row updates to the state the button was showing, even
+   * if another tab or the batch import changed it since the list loaded.
+   *
+   * `reason` is required by the server when disabling; it is what the locked-out
+   * students are shown instead of a bare "account is deactivated".
+   */
+  async toggleStatus(id, isActive, reason) {
+    const response = await api.patch(`/admin/sections/${id}/status`, {
+      is_active: isActive,
+      reason,
+    })
     return response.data
   },
 

@@ -11,6 +11,14 @@ function generatePassword() {
   return Math.random().toString(36).slice(-8) + 'A1!'
 }
 
+/** "BSIT 3A" from a section record, for messages an admin reads. */
+function sectionLabel(section) {
+  if (!section) return 'section'
+  return [section.program, `${section.year_level}${section.section_name}`]
+    .filter(Boolean)
+    .join(' ')
+}
+
 router.get('/dashboard', async (req, res) => {
   try {
     const [sectionsRes, roomsRes, occupationsRes, reportsRes] = await Promise.all([
@@ -51,60 +59,69 @@ router.get('/sections', async (req, res) => {
   }
 })
 
-router.post('/sections', async (req, res) => {
-  try {
-    console.log('[Server] Creating section with data:', req.body)
-    const { data: section, error: sectionError } = await supabaseAdmin.from('sections').insert(req.body).select().single()
-    if (sectionError) {
-      console.error('[Server] Supabase error creating section:', sectionError)
-      throw sectionError
-    }
-    console.log('[Server] Section created:', section)
+/**
+ * Creates one section and the login accounts it owns.
+ *
+ * The regular student account is always created. The special-student account is
+ * opt-in through `withSpecial`, because not every section has a special student
+ * and an unused login is a credential nobody will ever hand out. The single
+ * create route passes `true`; the batch import passes `false`.
+ *
+ * Throws if the section itself cannot be created or if the regular student
+ * account fails, after undoing whatever was written. A failed special-student
+ * account is logged and left behind: the section is still usable without it, and
+ * the roles endpoint will create it on demand.
+ */
+async function createSectionWithAccounts(input, { withSpecial = false } = {}) {
+  const { data: section, error: sectionError } = await supabaseAdmin
+    .from('sections')
+    .insert(input)
+    .select()
+    .single()
+  if (sectionError) throw sectionError
 
-    // Generate email and password for student account
-    const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
-    const email = `${sectionCode}@ctu.edu.ph`
-    const password = generatePassword()
+  // Generate email and password for student account
+  const sectionCode = `${section.program.toLowerCase()}-${section.year_level}${section.section_name.toLowerCase()}`.replace(/\s+/g, '')
+  const email = `${sectionCode}@ctu.edu.ph`
+  const password = generatePassword()
 
     // Create Supabase Auth user for regular student
-    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        section_id: section.id,
-        section_name: `${section.program} ${section.year_level}${section.section_name}`,
-        role: 'student'
-      }
-    })
-
-    if (authError) {
-      console.error('[Server] Auth user creation failed:', authError)
-      await supabaseAdmin.from('sections').delete().eq('id', section.id)
-      throw authError
-    }
-
-    console.log('[Server] Auth user created:', authUser.user.id)
-
-    // Create profile for regular student
-    const { error: profileError } = await supabaseAdmin.from('profiles').insert({
-      auth_user_id: authUser.user.id,
+  const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: {
       section_id: section.id,
-      role: 'student',
-      full_name: `${section.program} ${section.year_level}${section.section_name} Student`,
-      is_active: true
-    })
-
-    if (profileError) {
-      console.error('[Server] Profile creation failed:', profileError)
-      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
-      await supabaseAdmin.from('sections').delete().eq('id', section.id)
-      throw profileError
+      section_name: `${section.program} ${section.year_level}${section.section_name}`,
+      role: 'student'
     }
+  })
 
-    console.log('[Server] Profile created for user:', authUser.user.id)
+  if (authError) {
+    console.error('[Server] Auth user creation failed:', authError)
+    await supabaseAdmin.from('sections').delete().eq('id', section.id)
+    throw authError
+  }
 
-    // Create Supabase Auth user for student_special
+  // Create profile for regular student
+  const { error: profileError } = await supabaseAdmin.from('profiles').insert({
+    auth_user_id: authUser.user.id,
+    section_id: section.id,
+    role: 'student',
+    full_name: `${section.program} ${section.year_level}${section.section_name} Student`,
+    is_active: true
+  })
+
+  if (profileError) {
+    console.error('[Server] Profile creation failed:', profileError)
+    await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
+    await supabaseAdmin.from('sections').delete().eq('id', section.id)
+    throw profileError
+  }
+
+  let specialCredentials = null
+
+  if (withSpecial) {
     const specialEmail = `special-${sectionCode}@ctu.edu.ph`
     const specialPassword = generatePassword()
 
@@ -123,8 +140,6 @@ router.post('/sections', async (req, res) => {
       console.error('[Server] Special auth user creation failed:', specialAuthError)
       // Don't rollback everything, just log error
     } else {
-      console.log('[Server] Special auth user created:', specialAuthUser.user.id)
-
       // Create profile for student_special
       const { error: specialProfileError } = await supabaseAdmin.from('profiles').insert({
         auth_user_id: specialAuthUser.user.id,
@@ -137,27 +152,167 @@ router.post('/sections', async (req, res) => {
       if (specialProfileError) {
         console.error('[Server] Special profile creation failed:', specialProfileError)
       } else {
-        console.log('[Server] Special profile created for user:', specialAuthUser.user.id)
+        specialCredentials = {
+          email: specialEmail,
+          password: specialPassword,
+          section_id: section.id
+        }
       }
     }
+  }
 
-    res.json({
-      success: true,
-      data: section,
-      credentials: {
-        email,
-        password,
-        section_id: section.id
-      },
-      specialCredentials: specialAuthError ? null : {
-        email: specialEmail,
-        password: specialPassword,
-        section_id: section.id
-      }
+  return {
+    section,
+    credentials: {
+      email,
+      password,
+      section_id: section.id
+    },
+    specialCredentials
+  }
+}
+
+router.post('/sections', async (req, res) => {
+  try {
+    // Sections added one at a time get both logins; a section can be given a
+    // special student later through the roles endpoint.
+    const { section, credentials, specialCredentials } = await createSectionWithAccounts(req.body, {
+      withSpecial: true,
     })
+    res.json({ success: true, data: section, credentials, specialCredentials })
   } catch (err) {
     console.error('[Server] Error creating section:', err)
     res.status(500).json({ success: false, message: err.message || 'Failed to create section' })
+  }
+})
+
+/** Upper bound on one import, so a malformed file cannot tie up the server. */
+const BATCH_LIMIT = 500
+
+const BATCH_COLUMNS = ['mayor_name', 'program', 'year_level', 'section_name', 'shift']
+const BATCH_SHIFTS = ['day', 'night']
+
+/**
+ * Bulk section import.
+ *
+ * The spreadsheet is parsed in the browser and arrives here as plain JSON rows,
+ * one per line of the sheet, already mapped to the sections columns. Each row
+ * goes through the same createSectionWithAccounts path as the add-section form,
+ * so an imported section and a hand-created one are indistinguishable — except
+ * that an import only creates the regular student login, never a special one.
+ *
+ * Rows are validated here rather than trusted, because the client is not the
+ * only possible caller. A row that names a section which already exists — by
+ * the UNIQUE(program, year_level, section_name, shift) constraint — is reported
+ * as skipped instead of failing the whole file, so re-running an import after a
+ * partial failure is safe.
+ */
+router.post('/sections/batch', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : null
+    if (!rows?.length) {
+      return res.status(400).json({ success: false, message: 'The file has no rows to import' })
+    }
+    if (rows.length > BATCH_LIMIT) {
+      return res.status(400).json({
+        success: false,
+        message: `A single import is limited to ${BATCH_LIMIT} rows. Split the file and try again.`,
+      })
+    }
+
+    const created = []
+    const skipped = []
+    const failed = []
+
+    for (const [index, row] of rows.entries()) {
+      const label = `Row ${index + 2}`
+
+      const values = {}
+      for (const column of BATCH_COLUMNS) {
+        const value = typeof row?.[column] === 'string' ? row[column].trim() : row?.[column]
+        values[column] = value === undefined || value === null ? '' : String(value)
+      }
+
+      const missing = ['program', 'year_level', 'section_name'].filter((column) => !values[column])
+      if (missing.length) {
+        failed.push({ row: label, reason: `Missing ${missing.join(', ')}` })
+        continue
+      }
+
+      // year_level is TEXT on the sections table, so a numeric cell from the
+      // spreadsheet is stringified rather than sent as a number.
+      values.shift = values.shift.toLowerCase()
+      if (!values.shift) {
+        values.shift = 'day'
+      } else if (!BATCH_SHIFTS.includes(values.shift)) {
+        failed.push({ row: label, reason: `Unknown shift "${values.shift}"` })
+        continue
+      }
+
+      const identity = {
+        program: values.program,
+        year_level: values.year_level,
+        section_name: values.section_name,
+        shift: values.shift,
+      }
+
+      const { data: existing, error: lookupError } = await supabaseAdmin
+        .from('sections')
+        .select('id')
+        .eq('program', identity.program)
+        .eq('year_level', identity.year_level)
+        .eq('section_name', identity.section_name)
+        .eq('shift', identity.shift)
+        .maybeSingle()
+
+      if (lookupError) {
+        failed.push({ row: label, reason: 'Could not check whether this section already exists' })
+        continue
+      }
+
+      if (existing) {
+        skipped.push({ row: label, reason: 'Section already exists', section: identity })
+        continue
+      }
+
+      try {
+        // No special-student login: an import is a list of ordinary class
+        // sections, and a special student is assigned per section afterwards
+        // through PUT /sections/:id/roles.
+        const result = await createSectionWithAccounts({
+          ...identity,
+          mayor_name: values.mayor_name || null,
+          student_type: 'student',
+        })
+
+        created.push({
+          row: label,
+          section: result.section,
+          mayor_name: result.section.mayor_name,
+          credentials: result.credentials,
+        })
+      } catch (err) {
+        console.error(`[Server] Batch import failed at ${label}:`, err)
+        failed.push({ row: label, reason: err.message || 'Could not create this section' })
+      }
+    }
+
+    console.log(
+      `[Server] Batch import finished - ${created.length} created, ${skipped.length} skipped, ${failed.length} failed`
+    )
+
+    res.json({
+      success: true,
+      data: {
+        created,
+        skipped,
+        failed,
+        total: rows.length,
+      },
+    })
+  } catch (err) {
+    console.error('[Server] Error importing sections:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to import sections' })
   }
 })
 
@@ -377,8 +532,9 @@ router.post('/sections/:id/regenerate-credentials', async (req, res) => {
  *
  * Every table below references sections(id) ON DELETE CASCADE, so these are the
  * exact row counts the confirmation dialog has to state before the delete goes
- * through. profiles.section_id carries no foreign key at all, so accounts are
- * reported for information only and survive the delete.
+ * through. profiles.section_id carries no foreign key at all, so the accounts are
+ * not cascaded — the delete route removes them explicitly, and this count is what
+ * the dialog uses to say so.
  */
 router.get('/sections/:id/impact', async (req, res) => {
   try {
@@ -409,14 +565,63 @@ router.get('/sections/:id/impact', async (req, res) => {
   }
 })
 
+/**
+ * Deletes a section and the logins it owns.
+ *
+ * The section row itself cascades to everything that references it, but
+ * profiles.section_id carries no foreign key, so the accounts are removed by
+ * hand here — otherwise a deleted section would leave working student logins
+ * behind that can still sign in and see a section that no longer exists.
+ *
+ * Auth users go first, then the profile rows. Deleting the profile is what
+ * actually revokes access, because authentication resolves a token to a profile
+ * and refuses the request when there is none. So an auth user that fails to
+ * delete becomes an unreachable orphan rather than a live account, and the
+ * delete still goes through.
+ */
 router.delete('/sections/:id', async (req, res) => {
   try {
+    const sectionId = req.params.id
+
+    const { data: accounts, error: accountError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, auth_user_id')
+      .eq('section_id', sectionId)
+
+    if (accountError) throw accountError
+
+    let revoked = 0
+    for (const account of accounts ?? []) {
+      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(account.auth_user_id)
+      if (authError) {
+        // Left in place deliberately. The profile delete below cuts its access
+        // off, and leaving the account lets an admin clean it up by hand.
+        console.error(
+          '[Server] Could not delete auth user',
+          account.auth_user_id,
+          '-',
+          authError.message
+        )
+        continue
+      }
+      revoked += 1
+    }
+
+    if (accounts?.length) {
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .delete()
+        .eq('section_id', sectionId)
+
+      if (profileError) throw profileError
+    }
+
     // A real delete, not a deactivate. PostgREST reports a delete that matched
     // nothing as an empty result rather than an error, hence maybeSingle.
     const { data, error } = await supabaseAdmin
       .from('sections')
       .delete()
-      .eq('id', req.params.id)
+      .eq('id', sectionId)
       .select('id')
       .maybeSingle()
 
@@ -425,23 +630,164 @@ router.delete('/sections/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Section not found' })
     }
 
-    res.json({ success: true, message: 'Section deleted' })
+    const stranded = (accounts?.length ?? 0) - revoked
+    if (stranded > 0) {
+      console.log(
+        `[Server] Section ${sectionId} deleted; ${stranded} auth account(s) could not be removed and need manual cleanup`
+      )
+    }
+
+    res.json({
+      success: true,
+      message: 'Section deleted',
+      data: { accountsDeleted: accounts?.length ?? 0, authUsersRemoved: revoked }
+    })
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to delete section' })
+    console.error('[Server] Error deleting section:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete section' })
   }
 })
 
+/**
+ * Enables or disables a section together with the logins it owns.
+ *
+ * `is_active` in the body sets the state outright; omitting it flips whatever the
+ * section currently is. The flip form matters because the table's button is a
+ * toggle — sending nothing used to arrive here as `undefined`, which updated no
+ * column and failed on the single-row read, leaving the button looking dead.
+ *
+ * Disabling only the section row would leave working accounts behind: nothing in
+ * authentication looks at sections.is_active, so students would still sign in and
+ * land on pages for a section the admin has closed. The profiles are flipped in
+ * the same pass instead, and authentication already refuses a deactivated
+ * profile with "Account is deactivated" — so the access actually goes away.
+ *
+ * Enabling restores every account the section owns, both roles. The section's
+ * data is untouched either way, which is the point: this is a pause, not a
+ * delete. See DELETE /sections/:id for the permanent one.
+ */
 router.patch('/sections/:id/status', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('sections').update({ is_active: req.body.is_active }).eq('id', req.params.id).select().single()
-    if (error) throw error
-    res.json({ success: true, data })
+    const sectionId = req.params.id
+    const requested = req.body?.is_active
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+
+    let isActive
+    if (typeof requested === 'boolean') {
+      isActive = requested
+    } else {
+      const { data: current, error: readError } = await supabaseAdmin
+        .from('sections')
+        .select('is_active')
+        .eq('id', sectionId)
+        .maybeSingle()
+
+      if (readError) throw readError
+      if (!current) {
+        return res.status(404).json({ success: false, message: 'Section not found' })
+      }
+
+      isActive = !current.is_active
+    }
+
+    // A reason is required to disable, and it is the only explanation a locked-out
+    // student ever gets, so an empty one is rejected rather than stored as blank.
+    // Enabling needs none: there is nothing left to explain once it is back on.
+    if (!isActive && !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Give a reason before disabling the section',
+        error: 'Reason required',
+      })
+    }
+
+    const { data: section, error: sectionError } = await supabaseAdmin
+      .from('sections')
+      .update({ is_active: isActive })
+      .eq('id', sectionId)
+      .select()
+      .single()
+
+    if (sectionError) throw sectionError
+
+    const { data: accounts, error: accountError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, auth_user_id, role')
+      .eq('section_id', sectionId)
+
+    if (accountError) throw accountError
+
+    let updated = 0
+    for (const account of accounts ?? []) {
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .update({ is_active: isActive })
+        .eq('id', account.id)
+
+      if (profileError) {
+        console.error(
+          `[Server] Could not set profile ${account.id} active=${isActive}:`,
+          profileError.message
+        )
+        continue
+      }
+
+      // The auth user carries the same flag in its metadata for anything that
+      // reads it, but this is cosmetic: authentication reads the profile.
+      await supabaseAdmin.auth.admin.updateUserById(account.auth_user_id, {
+        user_metadata: { role: account.role, section_id: sectionId, is_active: isActive },
+      })
+
+      updated += 1
+    }
+
+    if (accounts?.length && updated !== accounts.length) {
+      console.log(
+        `[Server] Section ${sectionId} set active=${isActive}; ${updated}/${accounts.length} account(s) updated`
+      )
+    }
+
+    /*
+     * The reason goes in audit_logs rather than a column on sections, so it needs
+     * no migration and it lands on the admin's existing audit trail for free. The
+     * reactivation row is what clears the reason: the sign-in page reads the most
+     * recent status entry, so without it a re-enabled section that was disabled
+     * again for a different reason would still show the old one.
+     */
+    const { error: logError } = await supabaseAdmin.from('audit_logs').insert({
+      user_id: req.user?.id ?? null,
+      action: isActive ? 'section_reactivated' : 'section_deactivated',
+      entity_type: 'section',
+      entity_id: sectionId,
+      description: isActive ? `Section re-enabled: ${sectionLabel(section)}` : reason,
+      ip_address: req.ip ?? null,
+    })
+
+    if (logError) {
+      // The section is already toggled and the accounts already flipped, so this
+      // must not fail the request — it would report a change that did happen as
+      // a failure. Logged, because a missing reason is worth knowing about.
+      console.error('[Server] Could not record the section status change:', logError.message)
+    }
+
+    res.json({
+      success: true,
+      data: section,
+      accountsUpdated: updated,
+      accountsTotal: accounts?.length ?? 0
+    })
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to update section status' })
+    console.error('[Server] Error updating section status:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to update section status' })
   }
 })
 
 // Rooms
+/** Upper bound on one import, so a malformed file cannot tie up the server. */
+const ROOM_BATCH_LIMIT = 500
+
+const ROOM_BATCH_COLUMNS = ['room_code', 'room_name', 'building', 'floor', 'description']
+
 router.get('/rooms', async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin.from('rooms').select('*').order('created_at', { ascending: false })
@@ -452,15 +798,126 @@ router.get('/rooms', async (req, res) => {
   }
 })
 
+/**
+ * Creates one room with a freshly generated QR token.
+ *
+ * qr_token is UNIQUE NOT NULL, so it is never taken from the request — the
+ * single create route and the batch import both come through here and a room can
+ * never be written with a missing or duplicated token.
+ */
+async function createRoom(input) {
+  const crypto = await import('crypto')
+  const qrToken = 'qr_' + crypto.randomBytes(32).toString('hex')
+
+  const { data, error } = await supabaseAdmin
+    .from('rooms')
+    .insert({ ...input, qr_token: qrToken })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
 router.post('/rooms', async (req, res) => {
   try {
-    const crypto = await import('crypto')
-    const qrToken = 'qr_' + crypto.randomBytes(32).toString('hex')
-    const { data, error } = await supabaseAdmin.from('rooms').insert({ ...req.body, qr_token: qrToken }).select().single()
-    if (error) throw error
+    const data = await createRoom(req.body)
     res.json({ success: true, data })
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to create room' })
+    console.error('[Server] Error creating room:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to create room' })
+  }
+})
+
+/**
+ * Bulk room import.
+ *
+ * The spreadsheet is parsed in the browser and arrives here as plain JSON rows,
+ * one per line of the sheet, already mapped to the rooms columns. Each row goes
+ * through the same createRoom path as the add-room form, so an imported room and
+ * a hand-created one are indistinguishable.
+ *
+ * A row naming a room code that already exists is reported as skipped rather than
+ * failing the whole file: room_code is UNIQUE, and re-running an import after a
+ * partial failure should be safe rather than a wall of errors.
+ */
+router.post('/rooms/batch', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : null
+    if (!rows?.length) {
+      return res.status(400).json({ success: false, message: 'The file has no rows to import' })
+    }
+    if (rows.length > ROOM_BATCH_LIMIT) {
+      return res.status(400).json({
+        success: false,
+        message: `A single import is limited to ${ROOM_BATCH_LIMIT} rows. Split the file and try again.`,
+      })
+    }
+
+    const created = []
+    const skipped = []
+    const failed = []
+
+    for (const [index, row] of rows.entries()) {
+      const label = `Row ${index + 2}`
+
+      const values = {}
+      for (const column of ROOM_BATCH_COLUMNS) {
+        const value = typeof row?.[column] === 'string' ? row[column].trim() : row?.[column]
+        values[column] = value === undefined || value === null ? '' : String(value)
+      }
+
+      // room_code drives the QR destination and is the room's identity in
+      // reports, so it is required; the rest are descriptive.
+      const missing = ['room_code', 'room_name'].filter((column) => !values[column])
+      if (missing.length) {
+        failed.push({ row: label, reason: `Missing ${missing.join(', ')}` })
+        continue
+      }
+
+      const input = {
+        room_code: values.room_code,
+        room_name: values.room_name,
+        building: values.building || null,
+        floor: values.floor || null,
+        description: values.description || null,
+      }
+
+      const { data: existing, error: lookupError } = await supabaseAdmin
+        .from('rooms')
+        .select('id')
+        .eq('room_code', input.room_code)
+        .maybeSingle()
+
+      if (lookupError) {
+        failed.push({ row: label, reason: 'Could not check whether this room already exists' })
+        continue
+      }
+
+      if (existing) {
+        skipped.push({ row: label, reason: 'Room code already in use', room: input })
+        continue
+      }
+
+      try {
+        created.push({ row: label, room: await createRoom(input) })
+      } catch (err) {
+        console.error(`[Server] Batch room import failed at ${label}:`, err)
+        failed.push({ row: label, reason: err.message || 'Could not create this room' })
+      }
+    }
+
+    console.log(
+      `[Server] Batch room import finished - ${created.length} created, ${skipped.length} skipped, ${failed.length} failed`
+    )
+
+    res.json({
+      success: true,
+      data: { created, skipped, failed, total: rows.length },
+    })
+  } catch (err) {
+    console.error('[Server] Error importing rooms:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to import rooms' })
   }
 })
 
@@ -484,13 +941,73 @@ router.put('/rooms/:id', async (req, res) => {
   }
 })
 
+/**
+ * Counts what a room delete takes with it.
+ *
+ * Every table below references rooms(id) ON DELETE CASCADE, so these are the
+ * exact row counts the confirmation dialog has to state before the delete goes
+ * through. Deactivating the room instead would keep that history intact, which
+ * is what the room's toggle does; this endpoint exists for the permanent delete.
+ */
+router.get('/rooms/:id/impact', async (req, res) => {
+  try {
+    const roomId = req.params.id
+    const tables = [
+      ['schedules', 'schedules'],
+      ['occupations', 'occupations'],
+      ['submissions', 'room_submissions'],
+      ['reports', 'reports']
+    ]
+
+    const counts = await Promise.all(
+      tables.map(async ([key, table]) => {
+        const { count, error } = await supabaseAdmin
+          .from(table)
+          .select('id', { count: 'exact', head: true })
+          .eq('room_id', roomId)
+        if (error) throw error
+        return [key, count || 0]
+      })
+    )
+
+    res.json({ success: true, data: Object.fromEntries(counts) })
+  } catch (err) {
+    console.error('[Server] Error checking what a room owns:', err)
+    res.status(500).json({ success: false, message: 'Failed to check what this room owns' })
+  }
+})
+
+/**
+ * Permanently deletes a room.
+ *
+ * A real delete, not a deactivate: the room row, its QR token and everything
+ * referencing it go with it. Every dependent table is ON DELETE CASCADE from
+ * rooms(id), so the history is removed by the database rather than row by row.
+ * The client's confirmation states that cost first, counted by the impact route
+ * above.
+ *
+ * Use the room's toggle to close a room without losing its history.
+ */
 router.delete('/rooms/:id', async (req, res) => {
   try {
-    const { error } = await supabaseAdmin.from('rooms').update({ is_active: false }).eq('id', req.params.id)
+    // PostgREST reports a delete that matched nothing as an empty result rather
+    // than an error, hence maybeSingle.
+    const { data, error } = await supabaseAdmin
+      .from('rooms')
+      .delete()
+      .eq('id', req.params.id)
+      .select('id')
+      .maybeSingle()
+
     if (error) throw error
-    res.json({ success: true, message: 'Room deactivated' })
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Room not found' })
+    }
+
+    res.json({ success: true, message: 'Room deleted' })
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to delete room' })
+    console.error('[Server] Error deleting room:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete room' })
   }
 })
 

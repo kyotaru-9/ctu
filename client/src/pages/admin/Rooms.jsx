@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { roomService } from '../../services/roomService'
+import RoomsBatchUploadModal from '../../features/rooms/RoomsBatchUploadModal'
 import {
   biArrowRepeat,
+  biCloudUpload,
   biDownload,
   biPencil,
   biPlus,
@@ -39,6 +41,48 @@ import {
 
 const BLANK_FORM = { room_code: '', room_name: '', building: '', floor: '', description: '' }
 
+const CASCADE_LABELS = {
+  schedules: 'schedule',
+  occupations: 'occupation',
+  submissions: 'room submission',
+  reports: 'report',
+}
+
+/**
+ * Names the rows a room delete takes with it. Everything here references
+ * rooms(id) ON DELETE CASCADE, so the counts are exact rather than a warning
+ * about "your data". Deactivating the room instead keeps all of this; that is
+ * what the room's toggle does.
+ */
+function CascadeList({ impact }) {
+  const destroying = Object.keys(CASCADE_LABELS)
+    .map((key) => [key, impact?.[key] ?? 0])
+    .filter(([, count]) => count > 0)
+
+  if (destroying.length === 0) {
+    return (
+      <p className="mt-3 text-sm text-ink-muted">
+        This room has no schedules, occupations, submissions or reports, so deleting it takes
+        nothing else with it.
+      </p>
+    )
+  }
+
+  return (
+    <div className="mt-4 rounded-md border border-bad/30 bg-bad-soft p-3">
+      <p className="text-xs font-semibold tracking-wide text-bad uppercase">Also deleted</p>
+      <ul className="mt-2 flex flex-col gap-1">
+        {destroying.map(([key, count]) => (
+          <li key={key} className="text-sm text-ink">
+            {count} {CASCADE_LABELS[key]}
+            {count === 1 ? '' : 's'}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export default function AdminRooms() {
   const navigate = useNavigate()
   const [rooms, setRooms] = useState([])
@@ -46,6 +90,8 @@ export default function AdminRooms() {
   const [showForm, setShowForm] = useState(false)
   const [editingRoom, setEditingRoom] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteImpact, setDeleteImpact] = useState(null)
+  const [impactLoading, setImpactLoading] = useState(false)
   const [qrRoom, setQrRoom] = useState(null)
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [loading, setLoading] = useState(true)
@@ -53,6 +99,8 @@ export default function AdminRooms() {
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
   const [formData, setFormData] = useState(BLANK_FORM)
+  const [showBatchUpload, setShowBatchUpload] = useState(false)
+  const [togglingId, setTogglingId] = useState(null)
 
   const fetchRooms = useCallback(async () => {
     setLoading(true)
@@ -153,12 +201,36 @@ export default function AdminRooms() {
     }
   }
 
+  /**
+   * Opens or closes a room. Deactivating stops students scanning its QR code and
+   * removes it from their pickers, but keeps its history.
+   *
+   * The row updates from the response straight away so the button and the status
+   * badge reflect the click immediately, then the list re-syncs. A failure is
+   * surfaced rather than swallowed, since a silently unchanged row looks like a
+   * dead button.
+   */
   async function handleToggleStatus(room) {
+    setTogglingId(room.id)
+    setError('')
+
     try {
-      const response = await roomService.update(room.id, { is_active: !room.is_active })
-      if (response.success) await fetchRooms()
-    } catch {
-      // Non-critical: list stays as-is until the next fetch.
+      const nextActive = !room.is_active
+      const response = await roomService.update(room.id, { is_active: nextActive })
+
+      if (!response.success) {
+        setError(response.message || 'Failed to update the room')
+        return
+      }
+
+      setRooms((current) =>
+        current.map((item) => (item.id === room.id ? { ...item, ...response.data } : item))
+      )
+      await fetchRooms()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update the room')
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -171,17 +243,51 @@ export default function AdminRooms() {
     }
   }
 
+  /**
+   * Opens the confirmation with the cascade cost already counted, so the dialog
+   * can name the rows that are about to go rather than gesturing at them.
+   */
+  async function openDeleteDialog(room) {
+    setDeleteTarget(room)
+    setDeleteImpact(null)
+    setError('')
+    setImpactLoading(true)
+    try {
+      const response = await roomService.getDeleteImpact(room.id)
+      if (response.success) {
+        setDeleteImpact(response.data)
+      } else {
+        setError(response.message || 'Could not check what this room owns')
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not check what this room owns')
+    } finally {
+      setImpactLoading(false)
+    }
+  }
+
+  function closeDeleteDialog() {
+    setDeleteTarget(null)
+    setDeleteImpact(null)
+    setImpactLoading(false)
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return
     setDeleting(true)
+    setError('')
     try {
       const response = await roomService.delete(deleteTarget.id)
-      if (response.success) await fetchRooms()
-    } catch {
-      // Ignore — the dialog closes either way.
+      if (!response.success) {
+        setError(response.message || 'Failed to delete room')
+        return
+      }
+      closeDeleteDialog()
+      await fetchRooms()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete room')
     } finally {
       setDeleting(false)
-      setDeleteTarget(null)
     }
   }
 
@@ -199,9 +305,14 @@ export default function AdminRooms() {
         title="Rooms"
         subtitle="Manage classrooms and their QR codes"
         actions={
-          <Button variant="primary" icon={biPlus} onClick={handleOpenAdd}>
-            Add room
-          </Button>
+          <>
+            <Button variant="secondary" icon={biCloudUpload} onClick={() => setShowBatchUpload(true)}>
+              Batch upload
+            </Button>
+            <Button variant="primary" icon={biPlus} onClick={handleOpenAdd}>
+              Add room
+            </Button>
+          </>
         }
       />
 
@@ -276,13 +387,14 @@ export default function AdminRooms() {
                         icon={room.is_active ? biToggleOff : biToggleOn}
                         label={room.is_active ? 'Deactivate room' : 'Activate room'}
                         tone={room.is_active ? 'bad' : 'ok'}
+                        disabled={togglingId === room.id}
                         onClick={() => handleToggleStatus(room)}
                       />
                       <ActionButton
                         icon={biTrash}
                         label="Delete room"
                         tone="bad"
-                        onClick={() => setDeleteTarget(room)}
+                        onClick={() => openDeleteDialog(room)}
                       />
                     </RowActions>
                   </TD>
@@ -347,19 +459,32 @@ export default function AdminRooms() {
         </form>
       </Modal>
 
+      {/* Batch import */}
+      <RoomsBatchUploadModal
+        open={showBatchUpload}
+        onClose={() => setShowBatchUpload(false)}
+        onImported={fetchRooms}
+      />
+
       <ConfirmDialog
         open={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
+        onClose={closeDeleteDialog}
         onConfirm={handleDelete}
         loading={deleting}
         title="Delete room"
         description={
           deleteTarget
-            ? `Delete ${deleteTarget.room_name} (${deleteTarget.room_code})? Its QR code will stop working immediately. This cannot be undone.`
+            ? `Permanently delete ${deleteTarget.room_name} (${deleteTarget.room_code})? Its QR code stops working immediately. To close a room without losing its history, use the toggle instead.`
             : ''
         }
-        confirmLabel="Delete room"
-      />
+        confirmLabel="Delete permanently"
+      >
+        {impactLoading ? (
+          <p className="mt-3 text-sm text-ink-muted">Checking what this room owns…</p>
+        ) : (
+          deleteImpact && <CascadeList impact={deleteImpact} />
+        )}
+      </ConfirmDialog>
 
       {/* QR preview */}
       <Modal

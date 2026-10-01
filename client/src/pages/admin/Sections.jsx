@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sectionService } from '../../services/sectionService'
-import { biArrowRepeat, biPencil, biPlus, biToggleOff, biToggleOn, biTrash } from '../../utils/icons'
+import SectionsBatchUploadModal from '../../features/sections/SectionsBatchUploadModal'
+import {
+  biArrowRepeat,
+  biCloudUpload,
+  biPencil,
+  biPlus,
+  biToggleOff,
+  biToggleOn,
+  biTrash,
+} from '../../utils/icons'
 import {
   ACTIVE_STATUS,
   Alert,
@@ -27,6 +36,7 @@ import {
   TR,
   Table,
   TableCard,
+  Textarea,
   EmptyState,
 } from '../../components/ui'
 
@@ -133,10 +143,11 @@ const CASCADE_LABELS = {
 }
 
 /**
- * Names the rows a section delete takes with it. Everything here references
- * sections(id) ON DELETE CASCADE, so the counts are exact rather than a warning
- * about "your data". Accounts are listed separately because profiles.section_id
- * has no foreign key, so they outlive the section.
+ * Names what a section delete takes with it. Everything in CASCADE_LABELS
+ * references sections(id) ON DELETE CASCADE, so those counts are exact rather
+ * than a warning about "your data". Accounts are listed separately because
+ * profiles.section_id has no foreign key, so the delete route removes them
+ * itself — and the count is what tells the admin their access is going too.
  */
 function CascadeList({ impact }) {
   const destroying = Object.keys(CASCADE_LABELS)
@@ -172,8 +183,8 @@ function CascadeList({ impact }) {
 
       {accounts > 0 && (
         <p className="text-sm text-ink-muted">
-          {accounts} login {accounts === 1 ? 'account' : 'accounts'} will keep working, but will no
-          longer be tied to a section.
+          {accounts} login {accounts === 1 ? 'account' : 'accounts'} will be deleted too, so the
+          {accounts === 1 ? ' student' : ' students'} lose their access immediately.
         </p>
       )}
     </div>
@@ -193,6 +204,11 @@ export default function AdminSections() {
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
   const [credentials, setCredentials] = useState(null)
+  const [showBatchUpload, setShowBatchUpload] = useState(false)
+  const [togglingId, setTogglingId] = useState(null)
+  const [disableTarget, setDisableTarget] = useState(null)
+  const [disableReason, setDisableReason] = useState('')
+  const [disableReasonError, setDisableReasonError] = useState('')
   const [regenerateTarget, setRegenerateTarget] = useState(null)
   const [regenerating, setRegenerating] = useState(false)
   const [regenerated, setRegenerated] = useState(null)
@@ -284,13 +300,74 @@ export default function AdminSections() {
     }
   }
 
-  async function handleToggleStatus(section) {
+  /**
+   * Disabling asks for a reason first. The reason is the only thing a locked-out
+   * student is shown, so it is collected in a dialog rather than inferred.
+   */
+  function openDisableDialog(section) {
+    setDisableTarget(section)
+    setDisableReason('')
+    setDisableReasonError('')
+    setError('')
+  }
+
+  function closeDisableDialog() {
+    setDisableTarget(null)
+    setDisableReason('')
+    setDisableReasonError('')
+  }
+
+  /**
+   * Applies the status change the toggle asked for. The row updates from the
+   * response straight away so the button and the status badge reflect the click
+   * immediately, then the list re-syncs in the background. A failure is surfaced
+   * rather than swallowed, since a silently unchanged row is indistinguishable
+   * from a dead button.
+   */
+  async function applyStatus(section, nextActive, reason = '') {
+    setTogglingId(section.id)
+    setError('')
+
     try {
-      const response = await sectionService.toggleStatus(section.id)
-      if (response.success) await fetchSections()
-    } catch {
-      // Non-critical: the list simply stays as-is until the next fetch.
+      const response = await sectionService.toggleStatus(section.id, nextActive, reason)
+
+      if (!response.success) {
+        setError(response.message || 'Failed to update the section')
+        return false
+      }
+
+      setSections((current) =>
+        current.map((item) => (item.id === section.id ? { ...item, ...response.data } : item))
+      )
+      await fetchSections()
+      return true
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update the section')
+      return false
+    } finally {
+      setTogglingId(null)
     }
+  }
+
+  async function handleConfirmDisable() {
+    if (!disableTarget) return
+
+    if (!disableReason.trim()) {
+      setDisableReasonError('Give a reason so the students know what happened.')
+      return
+    }
+
+    const ok = await applyStatus(disableTarget, false, disableReason.trim())
+    if (ok) closeDisableDialog()
+  }
+
+  /** Enabling needs no explanation, so it goes straight through. */
+  function handleToggleStatus(section) {
+    if (section.is_active) {
+      openDisableDialog(section)
+      return
+    }
+    applyStatus(section, true)
   }
 
   /**
@@ -383,11 +460,16 @@ export default function AdminSections() {
     <>
       <PageHeader
         title="Sections"
-        subtitle="Manage class sections and their student accounts"
+        subtitle="Manage class sections and their student accounts. Disabling a section stops its student logins too."
         actions={
-          <Button variant="primary" icon={biPlus} onClick={handleOpenAdd}>
-            Add section
-          </Button>
+          <>
+            <Button variant="secondary" icon={biCloudUpload} onClick={() => setShowBatchUpload(true)}>
+              Batch upload
+            </Button>
+            <Button variant="primary" icon={biPlus} onClick={handleOpenAdd}>
+              Add section
+            </Button>
+          </>
         }
       />
 
@@ -488,8 +570,13 @@ export default function AdminSections() {
                       />
                       <ActionButton
                         icon={section.is_active ? biToggleOff : biToggleOn}
-                        label={section.is_active ? 'Disable section' : 'Enable section'}
+                        label={
+                          section.is_active
+                            ? 'Disable section and its student logins'
+                            : 'Enable section and its student logins'
+                        }
                         tone={section.is_active ? 'bad' : 'ok'}
+                        disabled={togglingId === section.id}
                         onClick={() => handleToggleStatus(section)}
                       />
                       <ActionButton
@@ -574,6 +661,68 @@ export default function AdminSections() {
         </form>
       </Modal>
 
+      {/*
+        A Modal rather than a ConfirmDialog: the reason is a required text field,
+        and ConfirmDialog has no slot for form controls. Shown before the status
+        change, never after — the point is to make the admin write it down while
+        they still have the section in front of them.
+      */}
+      <Modal
+        open={Boolean(disableTarget)}
+        onClose={closeDisableDialog}
+        title="Disable section"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={closeDisableDialog}
+              disabled={Boolean(togglingId)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              icon={biToggleOff}
+              onClick={handleConfirmDisable}
+              loading={Boolean(togglingId)}
+            >
+              Disable section
+            </Button>
+          </>
+        }
+      >
+        {disableTarget && (
+          <form
+            id="disable-section-form"
+            onSubmit={handleConfirmDisable}
+            noValidate
+            className="form-stack"
+          >
+            {error && <Alert tone="bad">{error}</Alert>}
+
+            <p className="text-sm text-ink-muted">
+              Disabling {disableTarget.program} {disableTarget.year_level}
+              {disableTarget.section_name} signs out its student accounts. Their data is kept and
+              you can switch it back on at any time.
+            </p>
+
+            <Textarea
+              label="Reason for deactivation"
+              required
+              rows={3}
+              value={disableReason}
+              onChange={(event) => {
+                setDisableReason(event.target.value)
+                if (disableReasonError) setDisableReasonError('')
+              }}
+              error={disableReasonError}
+              placeholder="e.g. Class suspended for renovation until 15 March"
+              hint="Students see this on the page they land on when they try to sign in."
+            />
+          </form>
+        )}
+      </Modal>
+
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         onClose={closeDeleteDialog}
@@ -582,7 +731,7 @@ export default function AdminSections() {
         title="Delete section"
         description={
           deleteTarget
-            ? `Permanently delete ${deleteTarget.program} ${deleteTarget.year_level}${deleteTarget.section_name}? This cannot be undone.`
+            ? `Permanently delete ${deleteTarget.program} ${deleteTarget.year_level}${deleteTarget.section_name}, along with its student login${deleteImpact?.accounts === 1 ? '' : 's'}? This cannot be undone.`
             : ''
         }
         confirmLabel="Delete permanently"
@@ -629,6 +778,13 @@ export default function AdminSections() {
         accounts={credentials ? [credentials] : []}
         section={sectionLabel}
         note="They must change their password on first login."
+      />
+
+      {/* Batch import */}
+      <SectionsBatchUploadModal
+        open={showBatchUpload}
+        onClose={() => setShowBatchUpload(false)}
+        onImported={fetchSections}
       />
     </>
   )
