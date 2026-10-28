@@ -34,19 +34,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS report_reasons_name_key ON report_reasons (nam
 -- 2. Insert the reason set, or refresh it if it is already there.
 INSERT INTO report_reasons (name, description, is_active)
 VALUES
-    ('Trash left in room',             'Garbage, wrappers, or other waste materials left behind'),
-    ('Dirty floor',                    'Floor has visible dirt, stains, or spills'),
-    ('Dirty chairs/desks',             'Chairs or desks have dust, stains, or writing on them'),
-    ('Improperly arranged chairs',     'Chairs and desks not returned to their proper arrangement'),
-    ('Dust/dirt present',              'Visible dust on surfaces, window sills, or equipment'),
-    ('Food waste',                     'Food remnants, crumbs, or spilled drinks'),
-    ('Spilled liquid',                 'Spilled drinks or other liquids on desks or the floor'),
-    ('Unclean board',                  'Whiteboard or blackboard has old markings or eraser dust'),
-    ('Dirty windows/glass',            'Windows, glass panels, or partitions are dirty or smudged'),
-    ('Waste bin not emptied',          'Waste bin is full, overflowing, or was not emptied'),
-    ('Damaged or messy classroom area', 'Broken furniture, vandalism, or general disarray'),
-    ('Cleaning supplies missing',      'Soap, disinfectant, or other supplies are not available'),
-    ('Other',                          'Any other issue not listed above')
+    ('Trash left in room',             'Garbage, wrappers, or other waste materials left behind', true),
+    ('Dirty floor',                    'Floor has visible dirt, stains, or spills', true),
+    ('Dirty chairs/desks',             'Chairs or desks have dust, stains, or writing on them', true),
+    ('Improperly arranged chairs',     'Chairs and desks not returned to their proper arrangement', true),
+    ('Dust/dirt present',              'Visible dust on surfaces, window sills, or equipment', true),
+    ('Food waste',                     'Food remnants, crumbs, or spilled drinks', true),
+    ('Spilled liquid',                 'Spilled drinks or other liquids on desks or the floor', true),
+    ('Unclean board',                  'Whiteboard or blackboard has old markings or eraser dust', true),
+    ('Dirty windows/glass',            'Windows, glass panels, or partitions are dirty or smudged', true),
+    ('Waste bin not emptied',          'Waste bin is full, overflowing, or was not emptied', true),
+    ('Damaged or messy classroom area', 'Broken furniture, vandalism, or general disarray', true),
+    ('Cleaning supplies missing',      'Soap, disinfectant, or other supplies are not available', true),
+    ('Other',                          'Any other issue not listed above', true)
 ON CONFLICT (name) DO UPDATE
 SET description = EXCLUDED.description,
     is_active   = true;

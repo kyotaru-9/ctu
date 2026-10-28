@@ -127,7 +127,7 @@ export default function AdminQRPrint() {
             <DetailList
               columns={1}
               items={[
-                { label: 'Room', value: room.room_name },
+                { label: 'Room', value: room.room_code },
                 { label: 'Room code', value: room.room_code },
                 {
                   label: 'Location',

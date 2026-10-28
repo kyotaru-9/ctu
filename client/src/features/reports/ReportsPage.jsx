@@ -3,27 +3,22 @@ import { reportService } from '../../services/reportService'
 import { roomService } from '../../services/roomService'
 import { formatDate, formatDateTime } from '../../lib/format'
 import {
-  ActionButton,
   Alert,
   Badge,
   Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
   DetailList,
   EmptyState,
   Input,
   Modal,
   PageHeader,
   REPORT_STATUS,
-  ScrollX,
   Select,
   StatusBadge,
-  TBody,
-  TD,
   Textarea,
-  TH,
-  THead,
-  TR,
-  Table,
-  TableCard,
 } from '../../components/ui'
 
 const MAX_BYTES = 10 * 1024 * 1024
@@ -145,6 +140,10 @@ export default function ReportsPage({ heading = 'Reports' }) {
     setFormData((previous) => ({ ...previous, [field]: value }))
   }
 
+  // Validate required fields
+  const needsOther = reasons.find((reason) => reason.id === formData.reason_id)?.name === 'Other'
+  const isFormValid = formData.room_id && formData.reason_id && formData.image && (!needsOther || formData.other_reason.trim())
+
   function resetForm() {
     if (preview) URL.revokeObjectURL(preview)
     setFormData(BLANK)
@@ -175,15 +174,23 @@ export default function ReportsPage({ heading = 'Reports' }) {
   async function handleSubmit(event) {
     event.preventDefault()
 
-    const needsOther = reasons.find((reason) => reason.id === formData.reason_id)?.name === 'Other'
-
-    if (!formData.room_id || !formData.reason_id || !formData.image) {
-      setFormError('Choose a room, a reason, and attach an image.')
-      return
-    }
-    if (needsOther && !formData.other_reason.trim()) {
-      setFormError('Describe the other reason.')
-      return
+    if (!isFormValid) {
+      if (!formData.room_id) {
+        setFormError('Please select a room.')
+        return
+      }
+      if (!formData.reason_id) {
+        setFormError('Please select a reason.')
+        return
+      }
+      if (!formData.image) {
+        setFormError('Please attach an image.')
+        return
+      }
+      if (needsOther && !formData.other_reason.trim()) {
+        setFormError('Please describe the other reason.')
+        return
+      }
     }
 
     setSubmitting(true)
@@ -225,60 +232,68 @@ export default function ReportsPage({ heading = 'Reports' }) {
         }
       />
 
-      <TableCard
-        title="Your reports"
-        subtitle={`${reports.length} filed`}
-        loading={loading}
-        isEmpty={reports.length === 0}
-        empty={
-          <EmptyState
-            icon="bi bi-exclamation-triangle"
-            title="No reports yet"
-            description="If a room is dirty or damaged, file a report with a photo."
-            action={
-              <Button variant="primary" icon="bi bi-plus-lg" onClick={() => setShowCreate(true)}>
-                File your first report
-              </Button>
-            }
-          />
-        }
-      >
-        <ScrollX minW="38rem">
-          <Table>
-            <THead>
-              <tr>
-                <TH>Date</TH>
-                <TH>Room</TH>
-                <TH>Reason</TH>
-                <TH>Status</TH>
-                <TH align="right">Details</TH>
-              </tr>
-            </THead>
-            <TBody>
-              {reports.map((report) => (
-                <TR key={report.id}>
-                  <TD className="whitespace-nowrap">{formatDate(report.reported_at)}</TD>
-                  <TD className="tabular font-medium">{report.room?.room_code || '—'}</TD>
-                  <TD>{report.reason?.name || report.other_reason || '—'}</TD>
-                  <TD>
-                    <StatusBadge map={REPORT_STATUS} value={report.status} />
-                  </TD>
-                  <TD align="right">
-                    <div className="flex justify-end">
-                      <ActionButton
-                        text="View"
-                        label="View report"
-                        tone="accent"
-                        onClick={() => setSelected(report)}
-                      />
-                    </div>
-                  </TD>
-                </TR>
+      <Card>
+        <CardHeader>
+          <CardTitle>Your reports</CardTitle>
+          <p className="mt-0.5 text-xs text-ink-muted">{reports.length} filed</p>
+        </CardHeader>
+        <CardBody>
+          {loading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="rounded-md border border-line bg-surface-sunken p-4">
+                  <div className="h-4 w-1/3 animate-pulse rounded bg-line" />
+                  <div className="mt-2 h-3 w-1/4 animate-pulse rounded bg-line" />
+                </div>
               ))}
-            </TBody>
-          </Table>
-        </ScrollX>
-      </TableCard>
+            </div>
+          ) : reports.length === 0 ? (
+            <EmptyState
+              icon="bi bi-exclamation-triangle"
+              title="No reports yet"
+              description="If a room is dirty or damaged, file a report with a photo."
+              action={
+                <Button variant="primary" icon="bi bi-plus-lg" onClick={() => setShowCreate(true)}>
+                  File your first report
+                </Button>
+              }
+            />
+          ) : (
+            <div className="space-y-3">
+              {reports.map((report) => (
+                <Card key={report.id} className="p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium text-ink">{report.room?.room_code || '—'}</p>
+                        <StatusBadge map={REPORT_STATUS} value={report.status} />
+                      </div>
+                      <p className="mt-1 text-xs text-ink-muted">{formatDate(report.reported_at)}</p>
+                      <p className="mt-0.5 text-sm text-ink">
+                        {report.reason?.name || report.other_reason || '—'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelected(report)}
+                      >
+                        View
+                      </Button>
+                    </div>
+                  </div>
+                  {report.description && (
+                    <div className="mt-3 rounded-md border border-line bg-surface-sunken p-3">
+                      <p className="text-xs text-ink-muted">{report.description}</p>
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardBody>
+      </Card>
 
       {/* File a report */}
       <Modal
@@ -291,7 +306,7 @@ export default function ReportsPage({ heading = 'Reports' }) {
             <Button variant="secondary" onClick={closeCreate} disabled={submitting}>
               Cancel
             </Button>
-            <Button variant="primary" type="submit" form="report-form" loading={submitting}>
+            <Button variant="primary" type="submit" form="report-form" loading={submitting} disabled={!isFormValid}>
               Submit report
             </Button>
           </>
@@ -307,10 +322,11 @@ export default function ReportsPage({ heading = 'Reports' }) {
               value={formData.room_id}
               onChange={(event) => update('room_id', event.target.value)}
               placeholder="Select a room"
+              hint={!formData.room_id ? 'Room is required' : ''}
             >
               {rooms.map((room) => (
                 <option key={room.id} value={room.id}>
-                  {room.room_code} — {room.room_name}
+                  {room.room_code}
                 </option>
               ))}
             </Select>
@@ -321,6 +337,7 @@ export default function ReportsPage({ heading = 'Reports' }) {
               value={formData.reason_id}
               onChange={(event) => update('reason_id', event.target.value)}
               placeholder="Select a reason"
+              hint={!formData.reason_id ? 'Reason is required' : ''}
             >
               {reasons.map((reason) => (
                 <option key={reason.id} value={reason.id}>
@@ -337,6 +354,7 @@ export default function ReportsPage({ heading = 'Reports' }) {
               value={formData.other_reason}
               onChange={(event) => update('other_reason', event.target.value)}
               placeholder="Describe the problem"
+              hint={!formData.other_reason.trim() ? 'Please describe the other reason' : ''}
             />
           )}
 

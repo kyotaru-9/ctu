@@ -5,20 +5,60 @@ import { biBoxArrowRight, biPersonBadge } from '../utils/icons'
 import { BottomNav, Button, Drawer, IconTile, Logo, Menu, MenuDivider, MenuItem } from '../components/ui'
 import { cx } from '../lib/cx'
 
-function NavItems({ items, basePath, onNavigate }) {
+function NavItems({ items, basePath, onNavigate, groups, collapsedGroups, onToggleGroup }) {
   return (
     <nav aria-label="Main" className="flex flex-col gap-0.5 p-3">
-      {items.map((item) => (
-        <NavLink
-          key={item.path}
-          to={`${basePath}/${item.path}`}
-          onClick={onNavigate}
-          className="app-nav-link"
-        >
-          <i className={cx('bi', item.icon)} aria-hidden="true" />
-          {item.label}
-        </NavLink>
-      ))}
+      {groups ? (
+        groups.map((group) => {
+          const isCollapsed = collapsedGroups[group.label]
+          return (
+            <div key={group.label} className="mb-2">
+              <button
+                type="button"
+                onClick={() => onToggleGroup(group.label)}
+                className="mb-2 flex w-full items-center justify-between px-3 text-xs font-semibold tracking-wide text-ink-muted uppercase transition-colors hover:text-ink"
+                aria-expanded={!isCollapsed}
+              >
+                {group.label}
+                <i
+                  className={cx(
+                    'bi transition-transform duration-200',
+                    isCollapsed ? 'bi-chevron-right' : 'bi-chevron-down'
+                  )}
+                  aria-hidden="true"
+                />
+              </button>
+              {!isCollapsed && (
+                <div className="flex flex-col gap-0.5">
+                  {group.items.map((item) => (
+                    <NavLink
+                      key={item.path}
+                      to={`${basePath}/${item.path}`}
+                      onClick={onNavigate}
+                      className="app-nav-link"
+                    >
+                      <i className={cx('bi', item.icon)} aria-hidden="true" />
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })
+      ) : (
+        items.map((item) => (
+          <NavLink
+            key={item.path}
+            to={`${basePath}/${item.path}`}
+            onClick={onNavigate}
+            className="app-nav-link"
+          >
+            <i className={cx('bi', item.icon)} aria-hidden="true" />
+            {item.label}
+          </NavLink>
+        ))
+      )}
     </nav>
   )
 }
@@ -55,11 +95,44 @@ function UserCard({ user, roleLabel, onSignOut, compact = false }) {
  * bottom tab bar and no drawer; the rest fall back to a slide-in Drawer, so
  * the content column is never squeezed either way.
  */
-export default function AppShell({ items, basePath, roleLabel, bottomItems }) {
+export default function AppShell({ items, basePath, roleLabel, bottomItems, groups }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [collapsedGroups, setCollapsedGroups] = useState(() => {
+    // Initialize all groups as collapsed except the first one
+    const initial = {}
+    if (groups) {
+      groups.forEach((group, index) => {
+        initial[group.label] = index !== 0 // First group expanded
+      })
+    }
+    return initial
+  })
+
+  const toggleGroup = (groupLabel) => {
+    setCollapsedGroups(prev => {
+      const isCurrentlyCollapsed = prev[groupLabel]
+      // If expanding, collapse all others first and navigate to first item
+      if (isCurrentlyCollapsed) {
+        const group = groups.find(g => g.label === groupLabel)
+        if (group?.items?.[0]) {
+          navigate(`${basePath}/${group.items[0].path}`)
+        }
+        const newCollapsed = {}
+        groups.forEach(g => {
+          newCollapsed[g.label] = g.label !== groupLabel
+        })
+        return newCollapsed
+      }
+      // If collapsing, just toggle this one
+      return {
+        ...prev,
+        [groupLabel]: true
+      }
+    })
+  }
 
   // Only admins have a settings route, so the dropdown entry is driven by the
   // nav itself rather than hardcoded per role — it can never point at a route
@@ -97,9 +170,15 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems }) {
             </span>
           </NavLink>
         </div>
-
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <NavItems items={items} basePath={basePath} />
+          <NavItems
+            items={items}
+            basePath={basePath}
+            onNavigate={() => {}}
+            groups={groups}
+            collapsedGroups={collapsedGroups}
+            onToggleGroup={toggleGroup}
+          />
         </div>
 
         <UserCard user={user} roleLabel={roleLabel} onSignOut={handleSignOut} />
@@ -180,7 +259,14 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems }) {
         <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title={roleLabel}>
           <div className="flex h-full flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <NavItems items={items} basePath={basePath} onNavigate={() => setDrawerOpen(false)} />
+              <NavItems
+                items={items}
+                basePath={basePath}
+                onNavigate={() => setDrawerOpen(false)}
+                groups={groups}
+                collapsedGroups={collapsedGroups}
+                onToggleGroup={toggleGroup}
+              />
             </div>
             <UserCard user={user} roleLabel={roleLabel} onSignOut={handleSignOut} />
           </div>

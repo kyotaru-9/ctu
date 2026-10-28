@@ -65,10 +65,12 @@ router.get('/dashboard', async (req, res) => {
 router.get('/sections', async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin.from('sections').select('*').order('created_at', { ascending: false })
-    if (error) {      throw error
+    if (error) {
+      throw error
     }
     res.json({ success: true, data })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to load sections' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to load sections' })
   }
 })
 
@@ -111,7 +113,8 @@ async function createSectionWithAccounts(input) {
     }
   })
 
-  if (authError) {    await supabaseAdmin.from('sections').delete().eq('id', section.id)
+  if (authError) {
+    await supabaseAdmin.from('sections').delete().eq('id', section.id)
     throw authError
   }
 
@@ -124,7 +127,8 @@ async function createSectionWithAccounts(input) {
     is_active: true
   })
 
-  if (profileError) {    await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
+  if (profileError) {
+    await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
     await supabaseAdmin.from('sections').delete().eq('id', section.id)
     throw profileError
   }
@@ -146,7 +150,8 @@ router.post('/sections', async (req, res) => {
     // created here.
     const { section, credentials } = await createSectionWithAccounts(req.body)
     res.json({ success: true, data: section, credentials })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to create section' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to create section' })
   }
 })
 
@@ -255,7 +260,8 @@ router.post('/sections/batch', async (req, res) => {
           mayor_name: result.section.mayor_name,
           credentials: result.credentials,
         })
-      } catch (err) {        failed.push({ row: label, reason: err.message || 'Could not create this section' })
+      } catch (err) {
+        failed.push({ row: label, reason: err.message || 'Could not create this section' })
       }
     }
 
@@ -268,7 +274,8 @@ router.post('/sections/batch', async (req, res) => {
         total: rows.length,
       },
     })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to import sections' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to import sections' })
   }
 })
 
@@ -349,7 +356,8 @@ router.put('/sections/:id/roles', async (req, res) => {
           .update({ is_active: enabled })
           .eq('id', profile.id)
 
-        if (error) {          continue
+        if (error) {
+          continue
         }
 
         await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
@@ -412,7 +420,8 @@ router.put('/sections/:id/roles', async (req, res) => {
         is_active: true,
       })
 
-      if (profileError) {        await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
+      if (profileError) {
+        await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
 
         for (const entry of created) {
           await supabaseAdmin.auth.admin.deleteUser(entry.authUserId)
@@ -441,17 +450,21 @@ router.put('/sections/:id/roles', async (req, res) => {
 
       const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, { password })
 
-      if (error) {        continue
+      if (error) {
+        continue
       }
 
       const { data: existing } = await supabaseAdmin.auth.admin.getUserById(profile.auth_user_id)
 
-      accounts.push({
-        role: profile.role,
-        email: existing?.user?.email ?? null,
-        password,
-        section_id: sectionId,
-      })
+      // Only include student accounts in the response, not student_special
+      if (profile.role === 'student') {
+        accounts.push({
+          role: profile.role,
+          email: existing?.user?.email ?? null,
+          password,
+          section_id: sectionId,
+        })
+      }
     }
 
     res.json({
@@ -459,7 +472,8 @@ router.put('/sections/:id/roles', async (req, res) => {
       message: 'Roles updated',
       data: { passwordChanged: true, accounts },
     })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to update roles' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to update roles' })
   }
 })
 
@@ -508,22 +522,27 @@ router.post('/sections/:id/regenerate-credentials', async (req, res) => {
         profile.auth_user_id
       )
 
-      if (readError || !existing?.user?.email) {        continue
+      if (readError || !existing?.user?.email) {
+        continue
       }
 
       const { error } = await supabaseAdmin.auth.admin.updateUserById(profile.auth_user_id, {
         password
       })
 
-      if (error) {        continue
+      if (error) {
+        continue
       }
 
-      accounts.push({
-        role: profile.role,
-        email: existing.user.email,
-        password,
-        section_id: sectionId
-      })
+      // Only include student accounts in the response, not student_special
+      if (profile.role === 'student') {
+        accounts.push({
+          role: profile.role,
+          email: existing.user.email,
+          password,
+          section_id: sectionId
+        })
+      }
     }
 
     if (!accounts.length) {
@@ -535,9 +554,12 @@ router.post('/sections/:id/regenerate-credentials', async (req, res) => {
     }
 
     const skipped = profiles.length - accounts.length
-    if (skipped > 0) {    }
-    res.json({ success: true, message: 'Password regenerated', data: { accounts, skipped } })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to regenerate credentials' })
+    if (skipped > 0) {
+    }
+
+    res.json({ success: true, message: 'Password regenerated', data: { accounts, skipped } })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to regenerate credentials' })
   }
 })
 
@@ -609,7 +631,8 @@ router.delete('/sections/:id', async (req, res) => {
       const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(account.auth_user_id)
       if (authError) {
         // Left in place deliberately. The profile delete below cuts its access
-        // off, and leaving the account lets an admin clean it up by hand.        continue
+        // off, and leaving the account lets an admin clean it up by hand.
+        continue
       }
       revoked += 1
     }
@@ -638,14 +661,16 @@ router.delete('/sections/:id', async (req, res) => {
     }
 
     const stranded = (accounts?.length ?? 0) - revoked
-    if (stranded > 0) {    }
+    if (stranded > 0) {
+    }
 
     res.json({
       success: true,
       message: 'Section deleted',
       data: { accountsDeleted: accounts?.length ?? 0, authUsersRemoved: revoked }
     })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to delete section' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete section' })
   }
 })
 
@@ -725,7 +750,8 @@ router.patch('/sections/:id/status', async (req, res) => {
         .update({ is_active: isActive })
         .eq('id', account.id)
 
-      if (profileError) {        continue
+      if (profileError) {
+        continue
       }
 
       // The auth user carries the same flag in its metadata for anything that
@@ -737,7 +763,8 @@ router.patch('/sections/:id/status', async (req, res) => {
       updated += 1
     }
 
-    if (accounts?.length && updated !== accounts.length) {    }
+    if (accounts?.length && updated !== accounts.length) {
+    }
 
     /*
      * The reason goes in audit_logs rather than a column on sections, so it needs
@@ -763,7 +790,8 @@ router.patch('/sections/:id/status', async (req, res) => {
       accountsUpdated: updated,
       accountsTotal: accounts?.length ?? 0
     })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to update section status' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to update section status' })
   }
 })
 
@@ -771,7 +799,7 @@ router.patch('/sections/:id/status', async (req, res) => {
 /** Upper bound on one import, so a malformed file cannot tie up the server. */
 const ROOM_BATCH_LIMIT = 500
 
-const ROOM_BATCH_COLUMNS = ['room_code', 'room_name', 'building', 'floor', 'description']
+const ROOM_BATCH_COLUMNS = ['room_code', 'floor', 'description']
 
 router.get('/rooms', async (req, res) => {
   try {
@@ -808,7 +836,23 @@ router.post('/rooms', async (req, res) => {
   try {
     const data = await createRoom(req.body)
     res.json({ success: true, data })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to create room' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to create room' })
+  }
+})
+
+router.put('/rooms/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('rooms')
+      .update(req.body)
+      .eq('id', req.params.id)
+      .select()
+      .single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to update room' })
   }
 })
 
@@ -852,7 +896,7 @@ router.post('/rooms/batch', async (req, res) => {
 
       // room_code drives the QR destination and is the room's identity in
       // reports, so it is required; the rest are descriptive.
-      const missing = ['room_code', 'room_name'].filter((column) => !values[column])
+      const missing = ['room_code'].filter((column) => !values[column])
       if (missing.length) {
         failed.push({ row: label, reason: `Missing ${missing.join(', ')}` })
         continue
@@ -860,8 +904,6 @@ router.post('/rooms/batch', async (req, res) => {
 
       const input = {
         room_code: values.room_code,
-        room_name: values.room_name,
-        building: values.building || null,
         floor: values.floor || null,
         description: values.description || null,
       }
@@ -884,7 +926,8 @@ router.post('/rooms/batch', async (req, res) => {
 
       try {
         created.push({ row: label, room: await createRoom(input) })
-      } catch (err) {        failed.push({ row: label, reason: err.message || 'Could not create this room' })
+      } catch (err) {
+        failed.push({ row: label, reason: err.message || 'Could not create this room' })
       }
     }
 
@@ -892,7 +935,8 @@ router.post('/rooms/batch', async (req, res) => {
       success: true,
       data: { created, skipped, failed, total: rows.length },
     })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to import rooms' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to import rooms' })
   }
 })
 
@@ -946,7 +990,8 @@ router.get('/rooms/:id/impact', async (req, res) => {
     )
 
     res.json({ success: true, data: Object.fromEntries(counts) })
-  } catch (err) {    res.status(500).json({ success: false, message: 'Failed to check what this room owns' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to check what this room owns' })
   }
 })
 
@@ -978,7 +1023,8 @@ router.delete('/rooms/:id', async (req, res) => {
     }
 
     res.json({ success: true, message: 'Room deleted' })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to delete room' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete room' })
   }
 })
 
@@ -995,9 +1041,9 @@ router.post('/rooms/:id/regenerate-qr', async (req, res) => {
 })
 
 // Schedules
-// Aliased so the embed lands on `section`/`room`, which is what the admin
+// Aliased so the embed lands on `section`/`room`/`educator`, which is what the admin
 // schedule table, edit form and delete prompt all read.
-const SCHEDULE_SELECT = '*, section:sections(*), room:rooms(*)'
+const SCHEDULE_SELECT = '*, section:sections(*), room:rooms(*), educator:educators(*)'
 
 router.get('/schedules', async (req, res) => {
   try {
@@ -1170,11 +1216,41 @@ router.post('/schedules/batch', async (req, res) => {
       })
     }
 
+    // Resolve instructors - get or create educators by name
+    const instructorNames = [...new Set(parsed.map((row) => row.instructor_name).filter(Boolean))]
+    const { data: existingEducators, error: educatorsError } = await supabaseAdmin
+      .from('educators')
+      .select('id, name')
+      .in('name', instructorNames)
+
+    if (educatorsError) throw educatorsError
+
+    const educatorMap = new Map((existingEducators || []).map((e) => [e.name, e.id]))
+
+    // Create educators that don't exist yet
+    for (const name of instructorNames) {
+      if (!educatorMap.has(name)) {
+        const { data: newEducator, error: createError } = await supabaseAdmin
+          .from('educators')
+          .insert({ name, department: 'General' })
+          .select('id, name')
+          .single()
+
+        if (createError) {
+          // Log but don't fail the entire import
+          console.error(`Failed to create educator ${name}:`, createError)
+        } else if (newEducator) {
+          educatorMap.set(name, newEducator.id)
+        }
+      }
+    }
+
     const created = []
     const skipped = []
 
     for (const row of parsed) {
       const roomId = roomIds.get(row.room_code)
+      const educatorId = row.instructor_name ? educatorMap.get(row.instructor_name) : null
 
       // Two classes cannot occupy one room at the same time, so the slot decides
       // whether this row is new. limit(1) rather than maybeSingle, since nothing
@@ -1192,7 +1268,7 @@ router.post('/schedules/batch', async (req, res) => {
         skipped.push({
           row: row.__row,
           reason: 'This class is already scheduled in that room at that time',
-          schedule: { ...row, room_id: roomId, section_id: sectionId },
+          schedule: { ...row, room_id: roomId, section_id: sectionId, educator_id: educatorId },
         })
         continue
       }
@@ -1203,7 +1279,7 @@ router.post('/schedules/batch', async (req, res) => {
           section_id: sectionId,
           room_id: roomId,
           subject_name: row.subject_name,
-          instructor_name: row.instructor_name,
+          educator_id: educatorId,
           day_of_week: row.day_of_week,
           start_time: row.start_time,
           end_time: row.end_time,
@@ -1212,7 +1288,8 @@ router.post('/schedules/batch', async (req, res) => {
         .select(SCHEDULE_SELECT)
         .single()
 
-      if (error) {        failed.push({ row: row.__row, reason: error.message || 'Could not create this schedule' })
+      if (error) {
+        failed.push({ row: row.__row, reason: error.message || 'Could not create this schedule' })
         continue
       }
 
@@ -1223,7 +1300,8 @@ router.post('/schedules/batch', async (req, res) => {
       success: true,
       data: { created, skipped, failed, total: list.length },
     })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to import schedules' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to import schedules' })
   }
 })
 
@@ -1282,7 +1360,8 @@ router.get('/schedules/:id/impact', async (req, res) => {
       success: true,
       data: { occupations: occupationIds.length, submissions },
     })
-  } catch (err) {    res.status(500).json({ success: false, message: 'Failed to check what this schedule owns' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to check what this schedule owns' })
   }
 })
 
@@ -1316,15 +1395,175 @@ router.delete('/schedules/:id', async (req, res) => {
 
     // Logged, not written to audit_logs, to match the other permanent deletes.
     res.json({ success: true, message: 'Schedule deleted' })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to delete schedule' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete schedule' })
+  }
+})
+
+// Educators
+router.get('/educators', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('educators')
+      .select('*')
+      .order('name')
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load educators' })
+  }
+})
+
+router.get('/educators/active', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('educators')
+      .select('*')
+      .eq('is_active', true)
+      .order('name')
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load educators' })
+  }
+})
+
+router.post('/educators', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('educators')
+      .insert(req.body)
+      .select()
+      .single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to create educator' })
+  }
+})
+
+router.put('/educators/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('educators')
+      .update(req.body)
+      .eq('id', req.params.id)
+      .select()
+      .single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to update educator' })
+  }
+})
+
+router.delete('/educators/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('educators')
+      .update({ is_active: false })
+      .eq('id', req.params.id)
+      .select()
+      .single()
+    if (error) throw error
+    res.json({ success: true, message: 'Educator deactivated' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to deactivate educator' })
+  }
+})
+
+/**
+ * Bulk educator import.
+ *
+ * Each row creates one educator with a name and department. The spreadsheet is
+ * parsed in the browser and arrives here as plain JSON rows. Duplicate
+ * educators (same name) are skipped.
+ */
+router.post('/educators/batch', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : null
+    if (!rows?.length) {
+      return res.status(400).json({ success: false, message: 'The file has no rows to import' })
+    }
+
+    const created = []
+    const skipped = []
+    const failed = []
+
+    for (const [index, row] of rows.entries()) {
+      const label = `Row ${index + 2}`
+
+      const name = typeof row.name === 'string' ? row.name.trim() : row.name
+      const department = typeof row.department === 'string' ? row.department.trim() : row.department
+
+      if (!name) {
+        failed.push({ row: label, reason: 'Missing name' })
+        continue
+      }
+
+      if (!department) {
+        failed.push({ row: label, reason: 'Missing department' })
+        continue
+      }
+
+      // Check for duplicate educator by name
+      const { data: existing, error: lookupError } = await supabaseAdmin
+        .from('educators')
+        .select('id')
+        .ilike('name', name)
+        .maybeSingle()
+
+      if (lookupError) {
+        failed.push({ row: label, reason: 'Could not check for duplicate educator' })
+        continue
+      }
+
+      if (existing) {
+        skipped.push({ row: label, reason: 'Educator already exists' })
+        continue
+      }
+
+      try {
+        const { data: educator, error: createError } = await supabaseAdmin
+          .from('educators')
+          .insert({
+            name,
+            department,
+            is_active: true,
+          })
+          .select()
+          .single()
+
+        if (createError) throw createError
+
+        created.push({
+          row: label,
+          educator,
+        })
+      } catch (err) {
+        failed.push({ row: label, reason: err.message || 'Could not create educator' })
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        created,
+        skipped,
+        failed,
+        total: rows.length,
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to import educators' })
   }
 })
 
 // Occupations
 // PostgREST keys an embed by the name written in the select, so the aliases
-// below are what put `section`/`room`/`schedule` on the row instead of the
+// below are what put `section`/`room`/`schedule`/`educator` on the row instead of the
 // plural table names.
-const OCCUPATION_EMBEDS = 'section:sections(id, program, year_level, section_name), room:rooms(*), schedule:schedules(id, section_id, subject_name, instructor_name)'
+const OCCUPATION_EMBEDS = 'section:sections(id, program, year_level, section_name), room:rooms(*), schedule:schedules(id, section_id, subject_name, educator:educators(*))'
 
 // The list carries image_url as well as the submission summary, because the
 // Before/After columns preview the photo on hover and a Done badge that reveals
@@ -1521,7 +1760,7 @@ router.get('/analytics/rooms', async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin
       .from('reports')
-      .select('room_id, reason:report_reasons(name), room:rooms(room_code, room_name)')
+      .select('room_id, reason:report_reasons(name), room:rooms(room_code)')
     if (error) throw error
 
     // This used to return one row per report, so the panel could not rank rooms
@@ -1536,7 +1775,6 @@ router.get('/analytics/rooms', async (req, res) => {
         byRoom.set(key, {
           room_id: key,
           room_code: report.room?.room_code,
-          room_name: report.room?.room_name,
           total_reports: 0,
           reasonCounts: new Map()
         })
@@ -1669,7 +1907,8 @@ router.get('/audit-logs', async (req, res) => {
 
     if (error) throw error
     res.json({ success: true, data })
-  } catch (err) {    res.status(500).json({ success: false, message: 'Failed to load audit logs' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load audit logs' })
   }
 })
 
@@ -1710,7 +1949,8 @@ router.get('/audit-logs/dates', async (req, res) => {
       .sort((a, b) => b.date.localeCompare(a.date))
 
     res.json({ success: true, data: { dates, total: data?.length ?? 0 } })
-  } catch (err) {    res.status(500).json({ success: false, message: 'Failed to load audit log history' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load audit log history' })
   }
 })
 
@@ -1808,7 +2048,206 @@ router.delete('/audit-logs', async (req, res) => {
       message: 'Audit log entries deleted',
       data: { deleted, dates: sorted, before: Boolean(before) }
     })
-  } catch (err) {    res.status(500).json({ success: false, message: err.message || 'Failed to delete audit logs' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete audit logs' })
+  }
+})
+
+// Rotational Cleaning - Areas
+router.get('/areas', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('areas').select('*').order('name')
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load areas' })
+  }
+})
+
+router.post('/areas', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('areas').insert(req.body).select().single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to create area' })
+  }
+})
+
+router.put('/areas/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('areas').update(req.body).eq('id', req.params.id).select().single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to update area' })
+  }
+})
+
+router.delete('/areas/:id', async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin.from('areas').delete().eq('id', req.params.id)
+    if (error) throw error
+    res.json({ success: true, message: 'Area deleted' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to delete area' })
+  }
+})
+
+// Rotational Cleaning - Area Assignments
+const ASSIGNMENT_SELECT = '*, section:sections(*), area:areas(*)'
+
+router.get('/area-assignments', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('area_assignments').select(ASSIGNMENT_SELECT).order('day_of_week')
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load assignments' })
+  }
+})
+
+router.post('/area-assignments', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('area_assignments').insert(req.body).select(ASSIGNMENT_SELECT).single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to create assignment' })
+  }
+})
+
+router.put('/area-assignments/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('area_assignments').update(req.body).eq('id', req.params.id).select(ASSIGNMENT_SELECT).single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to update assignment' })
+  }
+})
+
+router.delete('/area-assignments/:id', async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin.from('area_assignments').delete().eq('id', req.params.id)
+    if (error) throw error
+    res.json({ success: true, message: 'Assignment deleted' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to delete assignment' })
+  }
+})
+
+/**
+ * Bulk area assignment import.
+ *
+ * Each row assigns a section to an area on a specific day. The spreadsheet is
+ * parsed in the browser and arrives here as plain JSON rows with IDs already
+ * resolved. Duplicate assignments (same section, area, and day) are skipped.
+ */
+router.post('/area-assignments/batch', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : null
+    if (!rows?.length) {
+      return res.status(400).json({ success: false, message: 'The file has no rows to import' })
+    }
+
+    const created = []
+    const skipped = []
+    const failed = []
+
+    for (const [index, row] of rows.entries()) {
+      const label = `Row ${index + 2}`
+
+      const sectionId = typeof row.section === 'string' ? row.section.trim() : row.section
+      const areaId = typeof row.area === 'string' ? row.area.trim() : row.area
+      const day = typeof row.day === 'string' ? row.day.trim() : row.day
+
+      if (!sectionId || !areaId || !day) {
+        failed.push({ row: label, reason: 'Missing section, area, or day' })
+        continue
+      }
+
+      const dayNumber = Number(day)
+      if (!Number.isInteger(dayNumber) || dayNumber < 1 || dayNumber > 7) {
+        failed.push({ row: label, reason: `Day must be 1 to 7, got "${day}"` })
+        continue
+      }
+
+      // Check for duplicate assignment
+      const { data: existing, error: lookupError } = await supabaseAdmin
+        .from('area_assignments')
+        .select('id')
+        .eq('section_id', sectionId)
+        .eq('area_id', areaId)
+        .eq('day_of_week', dayNumber)
+        .maybeSingle()
+
+      if (lookupError) {
+        failed.push({ row: label, reason: 'Could not check for duplicate assignment' })
+        continue
+      }
+
+      if (existing) {
+        skipped.push({ row: label, reason: 'Assignment already exists' })
+        continue
+      }
+
+      try {
+        const { data: assignment, error: createError } = await supabaseAdmin
+          .from('area_assignments')
+          .insert({
+            section_id: sectionId,
+            area_id: areaId,
+            day_of_week: dayNumber,
+          })
+          .select(ASSIGNMENT_SELECT)
+          .single()
+
+        if (createError) throw createError
+
+        created.push({
+          row: label,
+          assignment,
+        })
+      } catch (err) {
+        failed.push({ row: label, reason: err.message || 'Could not create assignment' })
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        created,
+        skipped,
+        failed,
+        total: rows.length,
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to import assignments' })
+  }
+})
+
+// Rotational Cleaning - Cleaning Records
+const CLEANING_RECORD_SELECT = '*, section:sections(*), area:areas(*)'
+
+router.get('/cleaning-records', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin.from('cleaning_records').select(CLEANING_RECORD_SELECT).order('submitted_at', { ascending: false })
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load cleaning records' })
+  }
+})
+
+router.delete('/cleaning-records/:id', async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin.from('cleaning_records').delete().eq('id', req.params.id)
+    if (error) throw error
+    res.json({ success: true, message: 'Cleaning record deleted' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to delete cleaning record' })
   }
 })
 

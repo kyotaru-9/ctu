@@ -18,6 +18,10 @@ import AdminAnalytics from './pages/admin/Analytics'
 import AdminAuditLogs from './pages/admin/AuditLogs'
 import AdminSettings from './pages/admin/Settings'
 import AdminQRPrint from './pages/admin/QRPrint'
+import AdminEducators from './pages/admin/Educators'
+import AdminAreas from './pages/admin/Areas'
+import AdminAreaAssignments from './pages/admin/AreaAssignments'
+import AdminCleanArea from './pages/admin/CleanArea'
 
 // Student Pages
 import StudentDashboard from './pages/student/Dashboard'
@@ -26,12 +30,14 @@ import StudentScan from './pages/student/Scan'
 import StudentSubmit from './pages/student/Submit'
 import StudentReports from './pages/student/Reports'
 import StudentHistory from './pages/student/History'
+import StudentRotational from './pages/student/Rotational'
 
 // Special Student Pages
 import SpecialDashboard from './pages/special/Dashboard'
 import SpecialBefore from './pages/special/Before'
 import SpecialAfter from './pages/special/After'
 import SpecialSchedule from './pages/special/Schedule'
+import SpecialRotational from './pages/special/Rotational'
 import SpecialReports from './pages/special/Reports'
 import SpecialHistory from './pages/special/History'
 
@@ -74,6 +80,10 @@ function AppRoutes() {
         <Route path="students" element={<AdminSections />} />
         <Route path="rooms" element={<AdminRooms />} />
         <Route path="schedules" element={<AdminSchedules />} />
+        <Route path="educator" element={<AdminEducators />} />
+        <Route path="areas" element={<AdminAreas />} />
+        <Route path="area-assignments" element={<AdminAreaAssignments />} />
+        <Route path="clean-area" element={<AdminCleanArea />} />
         <Route path="occupations" element={<AdminOccupations />} />
         <Route path="reports" element={<AdminReports />} />
         <Route path="analytics" element={<AdminAnalytics />} />
@@ -96,24 +106,26 @@ function AppRoutes() {
         <Route path="schedule" element={<StudentSchedule />} />
         <Route path="scan" element={<StudentScan />} />
         <Route path="submit" element={<StudentSubmit />} />
+        <Route path="rotational" element={<StudentRotational />} />
         <Route path="reports" element={<StudentReports />} />
         <Route path="history" element={<StudentHistory />} />
       </Route>
       
       {/* Student Special Routes */}
-      <Route 
-        path="/special/*" 
+      <Route
+        path="/special/*"
         element={
           <ProtectedRoute allowedRoles={['student_special']}>
             <SpecialStudentLayout />
           </ProtectedRoute>
-        } 
+        }
       >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<SpecialDashboard />} />
         <Route path="before" element={<SpecialBefore />} />
         <Route path="after" element={<SpecialAfter />} />
         <Route path="schedule" element={<SpecialSchedule />} />
+        <Route path="rotational" element={<SpecialRotational />} />
         <Route path="reports" element={<SpecialReports />} />
         <Route path="history" element={<SpecialHistory />} />
       </Route>

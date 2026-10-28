@@ -151,7 +151,7 @@ export default function StudentSubmit() {
               <DetailList
                 columns={1}
                 items={[
-                  { label: 'Room', value: room ? `${room.room_name || 'Unknown'} (${room.room_code || 'Unknown'})` : 'Unknown' },
+                  { label: 'Room', value: room ? room.room_code || 'Unknown' : 'Unknown' },
                   { label: 'Type', value: isBefore ? 'Before class' : 'After class' },
                   { label: 'Condition', value: <StatusBadge map={CONDITION} value={condition} /> },
                   schedule && schedule.subject_name && { label: 'Subject', value: schedule.subject_name },
@@ -173,7 +173,7 @@ export default function StudentSubmit() {
     <>
       <PageHeader
         title="Submit room condition"
-        subtitle={`${room.room_name} · ${room.room_code}`}
+        subtitle={room.room_code}
         actions={
           <Link
             to="/student/scan"
@@ -196,12 +196,12 @@ export default function StudentSubmit() {
             <DetailList
               columns={1}
               items={[
-                { label: 'Room', value: room?.room_name || 'Unknown' },
+                { label: 'Room', value: room?.room_code || 'Unknown' },
                 { label: 'Code', value: room?.room_code || 'Unknown' },
                 { label: 'Building', value: room?.building || 'Unknown' },
                 { label: 'Floor', value: room?.floor || 'Unknown' },
                 schedule && schedule.subject_name && { label: 'Subject', value: schedule.subject_name },
-                schedule && schedule.instructor_name && { label: 'Instructor', value: schedule.instructor_name },
+                schedule?.educator && { label: 'Instructor', value: schedule.educator.name },
                 schedule && schedule.start_time && schedule.end_time && {
                   label: 'Time',
                   value: `${formatTime(schedule.start_time)} – ${formatTime(schedule.end_time)}`,
@@ -293,7 +293,7 @@ export default function StudentSubmit() {
               <div>
                 <PhotoPreview
                   dataUrl={photoPreview}
-                  alt={`${isBefore ? 'Before' : 'After'} condition for ${room.room_name}`}
+                  alt={`${isBefore ? 'Before' : 'After'} condition for ${room.room_code}`}
                   onRetake={handleRetake}
                   onCancel={handleCancel}
                   onConfirm={handleSubmit}

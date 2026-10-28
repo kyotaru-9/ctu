@@ -39,7 +39,7 @@ import {
   Textarea,
 } from '../../components/ui'
 
-const BLANK_FORM = { room_code: '', room_name: '', building: '', floor: '', description: '' }
+const BLANK_FORM = { room_code: '', floor: '', description: '' }
 
 const CASCADE_LABELS = {
   schedules: 'schedule',
@@ -147,7 +147,7 @@ export default function AdminRooms() {
     if (!term) return rooms
 
     return rooms.filter((room) =>
-      [room.room_code, room.room_name, room.building, room.floor]
+      [room.room_code, room.floor, room.description]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(term))
     )
@@ -168,8 +168,6 @@ export default function AdminRooms() {
     setEditingRoom(room)
     setFormData({
       room_code: room.room_code || '',
-      room_name: room.room_name || '',
-      building: room.building || '',
       floor: room.floor || '',
       description: room.description || '',
     })
@@ -327,7 +325,7 @@ export default function AdminRooms() {
         subtitle={`${filteredRooms.length} of ${rooms.length} shown`}
         search={searchTerm}
         onSearchChange={setSearchTerm}
-        searchPlaceholder="Search code, name, building…"
+        searchPlaceholder="Search code, floor, description…"
         loading={loading}
         isEmpty={filteredRooms.length === 0}
         empty={
@@ -342,14 +340,13 @@ export default function AdminRooms() {
           />
         }
       >
-        <ScrollX minW="52rem">
+        <ScrollX minW="40rem">
           <Table>
             <THead>
               <tr>
                 <TH>Code</TH>
-                <TH>Room</TH>
-                <TH>Building</TH>
                 <TH>Floor</TH>
+                <TH>Description</TH>
                 <TH>Status</TH>
                 <TH align="right">Actions</TH>
               </tr>
@@ -358,9 +355,8 @@ export default function AdminRooms() {
               {filteredRooms.map((room) => (
                 <TR key={room.id}>
                   <TD className="tabular font-medium">{room.room_code}</TD>
-                  <TD>{room.room_name}</TD>
-                  <TD>{room.building || '—'}</TD>
                   <TD className="tabular">{room.floor || '—'}</TD>
+                  <TD className="max-w-xs truncate">{room.description || '—'}</TD>
                   <TD>
                     <StatusBadge map={ACTIVE_STATUS} value={String(Boolean(room.is_active))} />
                   </TD>
@@ -434,17 +430,6 @@ export default function AdminRooms() {
               hint={editingRoom ? 'Room code cannot be changed' : undefined}
             />
             <Input
-              label="Room name"
-              required
-              value={formData.room_name}
-              onChange={(event) => update('room_name', event.target.value)}
-            />
-            <Input
-              label="Building"
-              value={formData.building}
-              onChange={(event) => update('building', event.target.value)}
-            />
-            <Input
               label="Floor"
               value={formData.floor}
               onChange={(event) => update('floor', event.target.value)}
@@ -474,7 +459,7 @@ export default function AdminRooms() {
         title="Delete room"
         description={
           deleteTarget
-            ? `Permanently delete ${deleteTarget.room_name} (${deleteTarget.room_code})? Its QR code stops working immediately. To close a room without losing its history, use the toggle instead.`
+            ? `Permanently delete room ${deleteTarget.room_code}? Its QR code stops working immediately. To close a room without losing its history, use the toggle instead.`
             : ''
         }
         confirmLabel="Delete permanently"
@@ -534,9 +519,9 @@ export default function AdminRooms() {
             columns={1}
             className="w-full text-start"
             items={[
-              { label: 'Room', value: qrRoom?.room_name },
               { label: 'Code', value: qrRoom?.room_code },
-              { label: 'Location', value: [qrRoom?.building, qrRoom?.floor && `Floor ${qrRoom.floor}`].filter(Boolean).join(', ') },
+              { label: 'Floor', value: qrRoom?.floor || '—' },
+              { label: 'Description', value: qrRoom?.description || '—' },
             ]}
           />
         </div>

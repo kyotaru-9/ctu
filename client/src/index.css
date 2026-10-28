@@ -428,7 +428,8 @@
     display: flex;
     align-items: stretch;
     padding-block-start: 0.375rem;
-    padding-block-end: calc(0.25rem + env(safe-area-inset-bottom, 0px));
+    padding-block-end: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    padding-inline-start: 0.75rem;
     background-color: var(--color-surface);
     border-top: 1px solid var(--color-line);
   }
@@ -489,6 +490,19 @@
   .bottom-nav-link[aria-current='page'] .bottom-nav-icon {
     background-color: var(--color-accent-soft);
     color: var(--color-accent);
+    position: relative;
+  }
+
+  .bottom-nav-link[aria-current='page'] .bottom-nav-icon::after {
+    content: '';
+    position: absolute;
+    bottom: -0.25rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1.25rem;
+    height: 0.25rem;
+    background-color: var(--color-accent);
+    border-radius: 999px;
   }
 
   .bottom-nav-link[aria-current='page'] .bottom-nav-label {
@@ -508,6 +522,10 @@
     color: #fff;
     font-size: 1.4375rem;
     box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--color-accent) 60%, transparent);
+    transition:
+      background-color 0.15s var(--ease-out-soft),
+      color 0.15s var(--ease-out-soft),
+      box-shadow 0.15s var(--ease-out-soft);
   }
 
   .bottom-nav-link-primary:hover {
@@ -521,6 +539,24 @@
   .bottom-nav-link-primary[aria-current='page'] .bottom-nav-icon {
     background-color: var(--color-accent);
     color: #fff;
+    position: relative;
+    margin-block-start: -1.3125rem;
+    transition:
+      background-color 0.15s var(--ease-out-soft),
+      color 0.15s var(--ease-out-soft),
+      margin-block-start 0.15s var(--ease-out-soft);
+  }
+
+  .bottom-nav-link-primary[aria-current='page'] .bottom-nav-icon::after {
+    content: '';
+    position: absolute;
+    bottom: -0.25rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1.5rem;
+    height: 0.25rem;
+    background-color: var(--color-accent);
+    border-radius: 999px;
   }
 
   .bottom-nav-link-primary .bottom-nav-label {

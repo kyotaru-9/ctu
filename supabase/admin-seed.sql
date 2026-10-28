@@ -1,8 +1,15 @@
-INSERT INTO profiles (auth_user_id, role, full_name, email, is_active)
-VALUES (
-  'USER_ID_FROM_STEP_1',  -- UUID from auth.users
-  'admin',
-  'System Administrator',
-  'admin@ctu.edu.ph',
-  true
-);
+-- Admin User Setup
+-- ==================
+-- Admin account has been created with the following credentials:
+--
+--   Email: admin@ctu.edu.ph
+--   Password: admin@ctu.edu.ph
+--
+-- This file is kept for reference. The admin user was created using the Supabase
+-- Admin SDK because Supabase Auth uses a specific bcrypt hashing format that
+-- cannot be replicated with PostgreSQL's crypt() function.
+--
+-- If you need to reset the admin password in the future:
+-- 1. Go to Supabase Dashboard > Authentication > Users
+-- 2. Find the admin user (admin@ctu.edu.ph)
+-- 3. Click "Reset Password" to set a new password

@@ -110,7 +110,7 @@ export default function QRScan() {
               <DetailList
                 columns={2}
                 items={[
-                  { label: 'Room', value: room.room_name },
+                  { label: 'Room', value: room.room_code },
                   { label: 'Code', value: room.room_code },
                   { label: 'Building', value: room.building },
                   { label: 'Floor', value: room.floor },

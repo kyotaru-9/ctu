@@ -1,9 +1,10 @@
 import AppShell from './AppShell'
 import {
   biCalendar,
+  biCameraFill,
   biClockHistory,
-  biDashboard,
   biExclamation,
+  biHouse,
   biQRCode,
 } from '../utils/icons'
 
@@ -14,9 +15,10 @@ import {
  * QR, or from the dashboard quick actions.
  */
 const navItems = [
-  { path: 'dashboard', label: 'Home', icon: biDashboard },
+  { path: 'dashboard', label: 'Home', icon: biHouse },
   { path: 'schedule', label: 'Schedule', icon: biCalendar },
   { path: 'scan', label: 'Scan QR', icon: biQRCode, primary: true },
+  { path: 'rotational', label: 'Rotational', icon: biCameraFill, primary: true },
   { path: 'reports', label: 'Reports', icon: biExclamation },
   { path: 'history', label: 'History', icon: biClockHistory },
 ]

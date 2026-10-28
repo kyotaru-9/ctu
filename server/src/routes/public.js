@@ -9,7 +9,7 @@ router.get('/rooms/qr/:token', async (req, res, next) => {
     
     const { data: room, error } = await supabaseAdmin
       .from('rooms')
-      .select('id, room_code, room_name, building, floor, is_active')
+      .select('id, room_code, floor, is_active')
       .eq('qr_token', token)
       .single()
     
@@ -62,7 +62,7 @@ router.get('/report-reasons', async (req, res, next) => {
 router.get('/rooms', async (req, res, next) => {
   try {
     const { is_active } = req.query
-    let query = supabaseAdmin.from('rooms').select('id, room_code, room_name, building, floor, is_active').order('room_code')
+    let query = supabaseAdmin.from('rooms').select('id, room_code, floor, is_active').order('room_code')
     
     if (is_active !== undefined) {
       query = query.eq('is_active', is_active === 'true')

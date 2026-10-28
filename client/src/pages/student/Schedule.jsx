@@ -7,7 +7,6 @@ import {
   currentDayIndex,
   dayName,
   formatTime,
-  sectionLabel,
 } from '../../lib/format'
 import {
   Alert,
@@ -150,11 +149,11 @@ export default function StudentSchedule() {
                   <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted">
                     <span className="inline-flex items-center gap-1.5">
                       <IconTile icon={biPerson} size="xs" />
-                      {item.instructor_name || '—'}
+                      {item.educator?.name || '—'}
                     </span>
                     <span className="inline-flex items-center gap-1.5">
                       <IconTile icon={biDoorOpen} size="xs" />
-                      {item.rooms?.room_name || '—'}
+                      {item.rooms?.room_code || '—'}
                     </span>
                   </p>
                 </div>
@@ -198,7 +197,6 @@ export default function StudentSchedule() {
                   <TH>Subject</TH>
                   <TH>Instructor</TH>
                   <TH>Room</TH>
-                  <TH>Section</TH>
                 </tr>
               </THead>
               <TBody>
@@ -216,9 +214,8 @@ export default function StudentSchedule() {
                       {formatTime(item.start_time)} – {formatTime(item.end_time)}
                     </TD>
                     <TD>{item.subject_name}</TD>
-                    <TD>{item.instructor_name || '—'}</TD>
-                    <TD>{item.rooms?.room_name || '—'}</TD>
-                    <TD className="text-ink-muted">{sectionLabel(item.sections)}</TD>
+                    <TD>{item.educator?.name || '—'}</TD>
+                    <TD>{item.rooms?.room_code || '—'}</TD>
                   </TR>
                 ))}
               </TBody>

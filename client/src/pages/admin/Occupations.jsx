@@ -380,31 +380,81 @@ export default function AdminOccupations() {
         }
       >
         {selected && detail && (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4">
             {detailError && (
               <Alert tone="bad" onDismiss={() => setDetailError('')}>
                 {detailError}
               </Alert>
             )}
 
-            <DetailList
-              items={[
-                { label: 'Date', value: formatDate(detail.occupation_date) },
-                { label: 'Status', value: <StatusBadge map={OCCUPATION_STATUS} value={detail.status} /> },
-                { label: 'Section', value: sectionLabel(detail.section) },
-                { label: 'Room', value: detail.room?.room_code || '—' },
-                { label: 'Subject', value: detail.schedule?.subject_name || '—' },
-                { label: 'Instructor', value: detail.schedule?.instructor_name || '—' },
-                { label: 'Started', value: formatDateTime(detail.started_at) },
-                { label: 'Ended', value: formatDateTime(detail.ended_at) },
-              ]}
-            />
-
             {detailLoading && <LoadingBlock label="Loading submissions…" compact />}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <SubmissionPanel title="Before class" submission={detail.before} />
-              <SubmissionPanel title="After class" submission={detail.after} />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {/* Status card */}
+              <Card className="flex flex-col items-center justify-center p-6">
+                <p className="text-sm font-medium text-ink-muted mb-2">Status</p>
+                <StatusBadge map={OCCUPATION_STATUS} value={detail.status} />
+              </Card>
+
+              {/* Date/Time card */}
+              <Card className="p-6">
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-ink-muted">Date</p>
+                    <p className="text-sm">{formatDate(detail.occupation_date)}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-ink-muted">Time</p>
+                    <p className="text-sm">
+                      {detail.started_at
+                        ? formatTime(new Date(detail.started_at).toTimeString().slice(0, 5))
+                        : '—'}
+                      {' - '}
+                      {detail.ended_at
+                        ? formatTime(new Date(detail.ended_at).toTimeString().slice(0, 5))
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Room card */}
+              <Card className="p-6">
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-ink-muted">Room</p>
+                    <p className="text-sm">{detail.room?.room_code || '—'}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-ink-muted">Section</p>
+                    <p className="text-sm">{sectionLabel(detail.section)}</p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Subject card */}
+              <Card className="p-6">
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-ink-muted">Subject</p>
+                    <p className="text-sm">{detail.schedule?.subject_name || '—'}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-ink-muted">Instructor</p>
+                    <p className="text-sm">{detail.schedule?.educator?.name || '—'}</p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Before submission - spans 2 columns */}
+              <div className="sm:col-span-2">
+                <SubmissionPanel title="Before class" submission={detail.before} />
+              </div>
+
+              {/* After submission - spans 2 columns */}
+              <div className="sm:col-span-2">
+                <SubmissionPanel title="After class" submission={detail.after} />
+              </div>
             </div>
           </div>
         )}

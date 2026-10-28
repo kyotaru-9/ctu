@@ -194,7 +194,7 @@ export default function StudentScan() {
               <DetailList
                 columns={2}
                 items={[
-                  { label: 'Room', value: room?.room_name },
+                  { label: 'Room', value: room?.room_code },
                   { label: 'Code', value: room?.room_code },
                   { label: 'Building', value: room?.building },
                   { label: 'Floor', value: room?.floor },
@@ -249,7 +249,7 @@ export default function StudentScan() {
                               {schedule.subject_name}
                             </span>
                             <span className="mt-0.5 block truncate text-xs text-ink-muted">
-                              {schedule.instructor_name || '—'} ·{' '}
+                              {schedule.educator?.name || '—'} ·{' '}
                               {formatTime(schedule.start_time)} – {formatTime(schedule.end_time)}
                             </span>
                           </span>

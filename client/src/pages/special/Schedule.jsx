@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { scheduleService } from '../../services/scheduleService'
 import { submissionService } from '../../services/submissionService'
-import { DAY_NAMES_LIST, currentDayIndex, dayName, formatTime, sectionLabel, todayIso } from '../../lib/format'
+import { DAY_NAMES_LIST, currentDayIndex, dayName, formatTime, todayIso } from '../../lib/format'
 import {
   Alert,
   Badge,
@@ -149,22 +149,23 @@ export default function SpecialSchedule() {
                     key={item.id}
                     className="flex flex-col gap-4 border-b border-line px-4 py-4 last:border-b-0 sm:px-5"
                   >
-                    <div className="flex flex-wrap items-start gap-4">
-                      <div className="shrink-0 rounded-md bg-accent-soft px-4 py-2.5 text-center sm:w-28">
-                        <p className="tabular text-sm font-semibold text-accent-ink">
-                          {formatTime(item.start_time)}
-                        </p>
-                        <p className="tabular mt-0.5 text-xs text-ink-muted">
-                          {formatTime(item.end_time)}
-                        </p>
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-ink">{item.subject_name}</p>
-                        <p className="mt-1 text-xs text-ink-muted">
-                          {item.educator?.name || '—'} · {item.rooms?.room_code || '—'}
-                        </p>
-                      </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Card className="p-4">
+                        <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Time</p>
+                        <p className="mt-1 text-sm text-ink">{formatTime(item.start_time)} – {formatTime(item.end_time)}</p>
+                      </Card>
+                      <Card className="p-4">
+                        <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Subject</p>
+                        <p className="mt-1 text-sm text-ink">{item.subject_name}</p>
+                      </Card>
+                      <Card className="p-4">
+                        <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Instructor</p>
+                        <p className="mt-1 text-sm text-ink">{item.educator?.name || item.educator_id || '—'}</p>
+                      </Card>
+                      <Card className="p-4">
+                        <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Room</p>
+                        <p className="mt-1 text-sm text-ink">{item.rooms?.room_code || '—'}</p>
+                      </Card>
                     </div>
 
                     <div className="flex flex-col gap-2 sm:flex-row">
@@ -241,7 +242,6 @@ export default function SpecialSchedule() {
                   <TH>Subject</TH>
                   <TH>Instructor</TH>
                   <TH>Room</TH>
-                  <TH>Section</TH>
                 </tr>
               </THead>
               <TBody>
@@ -261,7 +261,6 @@ export default function SpecialSchedule() {
                     <TD>{item.subject_name}</TD>
                     <TD>{item.educator?.name || '—'}</TD>
                     <TD>{item.rooms?.room_code || '—'}</TD>
-                    <TD className="text-ink-muted">{sectionLabel(item.sections)}</TD>
                   </TR>
                 ))}
               </TBody>

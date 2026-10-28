@@ -8,18 +8,16 @@ import BatchImportModal from '../batch/BatchImportModal'
  */
 const COLUMN_ALIASES = {
   room_code: ['code', 'room code', 'room_code', 'roomcode', 'room number', 'no'],
-  room_name: ['room', 'room name', 'room_name', 'name', 'room type'],
-  building: ['building', 'bldg', 'location'],
   floor: ['floor', 'floor level', 'floor_level', 'level'],
   description: ['description', 'notes', 'remarks'],
 }
 
-const REQUIRED_COLUMNS = ['room_code', 'room_name']
+const REQUIRED_COLUMNS = ['room_code']
 
 /** Headers plus one example row, so the expected shape is visible. */
 const TEMPLATE_SHEET = [
-  ['code', 'room', 'building', 'floor', 'description'],
-  ['101', 'Computer Laboratory 1', 'Main Building', '1', '30 workstations'],
+  ['code', 'floor', 'description'],
+  ['101', '1', 'Computer Laboratory'],
 ]
 
 /**
@@ -45,20 +43,18 @@ export default function RoomsBatchUploadModal({ open, onClose, onImported }) {
       pluralLabel="rooms"
       intro={
         <>
-          The first sheet needs a header row with <strong>code</strong>, <strong>room</strong>,{' '}
-          <strong>building</strong>, <strong>floor</strong> and <strong>description</strong>. Only
-          code and room are required. Each row creates one classroom and generates its QR code.
+          The first sheet needs a header row with <strong>code</strong>, <strong>floor</strong> and{' '}
+          <strong>description</strong>. Only code is required. Each row creates one classroom and generates
+          its QR code.
         </>
       }
       aliases={COLUMN_ALIASES}
       requiredColumns={REQUIRED_COLUMNS}
-      expectedHeaders={['code', 'room', 'building', 'floor', 'description']}
+      expectedHeaders={['code', 'floor', 'description']}
       templateRows={TEMPLATE_SHEET}
       templateFileName="ctu-rooms-template.xlsx"
       columns={[
         { field: 'room_code', label: 'Code', className: 'tabular font-medium' },
-        { field: 'room_name', label: 'Room' },
-        { field: 'building', label: 'Building' },
         { field: 'floor', label: 'Floor', className: 'tabular' },
         { field: 'description', label: 'Description' },
       ]}
@@ -66,8 +62,6 @@ export default function RoomsBatchUploadModal({ open, onClose, onImported }) {
       uniqueBy="room_code"
       buildPayload={(row) => ({
         room_code: row.room_code,
-        room_name: row.room_name,
-        building: row.building,
         floor: row.floor,
         description: row.description,
       })}

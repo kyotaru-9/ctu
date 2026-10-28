@@ -216,9 +216,7 @@ export default function AdminAnalytics() {
                       <TR key={row.room_id}>
                         <TD className="tabular font-medium">
                           {row.room_code || '—'}
-                          {row.room_name && (
-                            <span className="ml-1.5 font-normal text-ink-muted">{row.room_name}</span>
-                          )}
+
                         </TD>
                         <TD align="right" className="tabular">
                           {row.total_reports}

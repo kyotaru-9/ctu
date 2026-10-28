@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { roomService } from '../../services/roomService'
 import { scheduleService } from '../../services/scheduleService'
 import { sectionService } from '../../services/sectionService'
+import { educatorService } from '../../services/educatorService'
 import SchedulesBatchUploadModal from '../../features/schedules/SchedulesBatchUploadModal'
 import { biCloudUpload, biEye, biPencil, biPlus, biToggleOff, biToggleOn, biTrash } from '../../utils/icons'
 import { DAY_NAMES_LIST, dayName, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
@@ -83,7 +84,7 @@ const BLANK_FORM = {
   section_id: '',
   room_id: '',
   subject_name: '',
-  instructor_name: '',
+  educator_id: '',
   day_of_week: '',
   start_time: '',
   end_time: '',
@@ -93,6 +94,7 @@ export default function AdminSchedules() {
   const [schedules, setSchedules] = useState([])
   const [sections, setSections] = useState([])
   const [rooms, setRooms] = useState([])
+  const [educators, setEducators] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [showBatchUpload, setShowBatchUpload] = useState(false)
@@ -115,14 +117,16 @@ export default function AdminSchedules() {
   const fetchSchedules = useCallback(async () => {
     setLoading(true)
     try {
-      const [schedulesRes, sectionsRes, roomsRes] = await Promise.all([
+      const [schedulesRes, sectionsRes, roomsRes, educatorsRes] = await Promise.all([
         scheduleService.getAll(),
         sectionService.getAll(),
         roomService.getAll(),
+        educatorService.getActive(),
       ])
       if (schedulesRes.success) setSchedules(schedulesRes.data)
       if (sectionsRes.success) setSections(sectionsRes.data)
       if (roomsRes.success) setRooms(roomsRes.data)
+      if (educatorsRes.success) setEducators(educatorsRes.data)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load schedules')
     } finally {
@@ -144,7 +148,7 @@ export default function AdminSchedules() {
         schedule.section?.program,
         schedule.room?.room_code,
         schedule.subject_name,
-        schedule.instructor_name,
+        schedule.educator?.name,
       ]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(term))
@@ -160,7 +164,7 @@ export default function AdminSchedules() {
       section_id: schedule.section_id || '',
       room_id: schedule.room_id || '',
       subject_name: schedule.subject_name || '',
-      instructor_name: schedule.instructor_name || '',
+      educator_id: schedule.educator_id || '',
       day_of_week: schedule.day_of_week !== undefined && schedule.day_of_week !== null
         ? String(schedule.day_of_week)
         : '',
@@ -379,7 +383,7 @@ export default function AdminSchedules() {
                   <TD className="font-medium">{sectionLabel(schedule.section)}</TD>
                   <TD className="tabular">{schedule.room?.room_code || '—'}</TD>
                   <TD>{schedule.subject_name}</TD>
-                  <TD>{schedule.instructor_name || '—'}</TD>
+                  <TD>{schedule.educator?.name || '—'}</TD>
                   <TD className="whitespace-nowrap">{dayName(schedule.day_of_week)}</TD>
                   <TD className="tabular whitespace-nowrap">{formatTime(schedule.start_time)}</TD>
                   <TD className="tabular whitespace-nowrap">{formatTime(schedule.end_time)}</TD>
@@ -465,11 +469,10 @@ export default function AdminSchedules() {
                 },
                 detail.section?.mayor_name && { label: 'Mayor', value: detail.section.mayor_name },
                 { label: 'Room', value: detail.room?.room_code || '—' },
-                detail.room?.room_name && { label: 'Room name', value: detail.room.room_name },
-                detail.room?.building && { label: 'Building', value: detail.room.building },
                 detail.room?.floor && { label: 'Floor', value: detail.room.floor },
                 { label: 'Subject', value: detail.subject_name },
-                { label: 'Instructor', value: detail.instructor_name },
+                { label: 'Instructor', value: detail.educator?.name || '—' },
+                detail.educator?.department && { label: 'Department', value: detail.educator.department },
                 { label: 'Day', value: dayName(detail.day_of_week) },
                 {
                   label: 'Time',
@@ -542,7 +545,7 @@ export default function AdminSchedules() {
                 >
                   {rooms.map((room) => (
                     <option key={room.id} value={room.id}>
-                      {room.room_code} — {room.room_name}
+                      {room.room_code}
                     </option>
                   ))}
                 </Select>
@@ -553,11 +556,18 @@ export default function AdminSchedules() {
                   value={formData.subject_name}
                   onChange={(event) => update('subject_name', event.target.value)}
                 />
-                <Input
+                <Select
                   label="Instructor"
-                  value={formData.instructor_name}
-                  onChange={(event) => update('instructor_name', event.target.value)}
-                />
+                  value={formData.educator_id}
+                  onChange={(event) => update('educator_id', event.target.value)}
+                  placeholder="Select an instructor"
+                >
+                  {educators.map((educator) => (
+                    <option key={educator.id} value={educator.id}>
+                      {educator.name} ({educator.department})
+                    </option>
+                  ))}
+                </Select>
               </div>
 
               <div className="form-grid-3">

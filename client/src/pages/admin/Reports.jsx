@@ -269,7 +269,7 @@ export default function AdminReports() {
                 { label: 'Status', value: <StatusBadge map={REPORT_STATUS} value={selected.status} /> },
                 { label: 'Section', value: sectionLabel(selected.section) },
                 { label: 'Room', value: selected.room?.room_code || '—' },
-                selected.room?.room_name && { label: 'Room name', value: selected.room.room_name },
+
                 selected.room?.building && { label: 'Building', value: selected.room.building },
                 selected.room?.floor && { label: 'Floor', value: selected.room.floor },
                 { label: 'Reason', value: selected.reason?.name || '—' },
