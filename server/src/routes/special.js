@@ -63,7 +63,7 @@ router.get('/dashboard', async (req, res) => {
     const todayStr = new Date().toISOString().split('T')[0]
 
     const [scheduleRes, submissionsRes] = await Promise.all([
-      supabaseAdmin.from('schedules').select('*, rooms(*), sections(*)').eq('section_id', sectionId).eq('day_of_week', today).eq('is_active', true).order('start_time'),
+      supabaseAdmin.from('schedules').select('*, rooms(*), sections(*), educator:educators(*)').eq('section_id', sectionId).eq('day_of_week', today).eq('is_active', true).order('start_time'),
       supabaseAdmin.from('room_submissions').select(HISTORY_SELECT).eq('section_id', sectionId).gte('submitted_at', todayStr)
     ])
 
@@ -87,11 +87,17 @@ router.get('/dashboard', async (req, res) => {
       }
     })
 
+    // Calculate compliance
+    const totalExpected = todaysSchedule.length * 2
+    const submittedCount = (before ? 1 : 0) + (after ? 1 : 0)
+    const compliance = totalExpected > 0 ? Math.round((submittedCount / totalExpected) * 100) : 0
+
     res.json({
       success: true,
       data: {
         todaysSchedule,
-        submissionStatus: { before, after }
+        submissionStatus: { before, after },
+        compliance
       }
     })
   } catch (err) {
@@ -103,7 +109,7 @@ router.get('/dashboard', async (req, res) => {
 // Special Student Schedule
 router.get('/schedule', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin.from('schedules').select('*, rooms(*), sections(*)').eq('section_id', req.user.section_id).eq('is_active', true).order('day_of_week').order('start_time')
+    const { data, error } = await supabaseAdmin.from('schedules').select('*, rooms(*), sections(*), educator:educators(*)').eq('section_id', req.user.section_id).eq('is_active', true).order('day_of_week').order('start_time')
     if (error) throw error
     res.json({ success: true, data })
   } catch (err) {

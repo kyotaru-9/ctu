@@ -14,12 +14,9 @@ import {
   ComplianceRing,
   EmptyState,
   IconTile,
-  SkeletonCards,
+  Skeleton,
   SkeletonPage,
-  SkeletonPanel,
   PageHeader,
-  StatCard,
-  StatGrid,
 } from '../../components/ui'
 
 export default function SpecialDashboard() {
@@ -39,16 +36,10 @@ export default function SpecialDashboard() {
         if (cancelled) return
 
         if (response.success) {
-          const { todaysSchedule, submissionStatus: status } = response.data
+          const { todaysSchedule, submissionStatus: status, compliance: comp } = response.data
           setTodaysSchedule(todaysSchedule || [])
           setSubmissionStatus(status || { before: null, after: null })
-
-          // Calculate compliance
-          const totalExpected = (todaysSchedule?.length || 0) * 2
-          const submittedCount = (status.before ? 1 : 0) + (status.after ? 1 : 0)
-          setCompliance(
-            totalExpected > 0 ? Math.round((submittedCount / totalExpected) * 100) : 0
-          )
+          setCompliance(comp || 0)
         }
       } catch (err) {
         if (!cancelled) setError(err.response?.data?.message || 'Failed to load dashboard')
@@ -66,14 +57,77 @@ export default function SpecialDashboard() {
   if (loading) {
     return (
       <SkeletonPage>
-        <SkeletonCards count={4} columns={4} className="mb-6" />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <SkeletonPanel lines={7} className="lg:col-span-2" />
-          <SkeletonPanel lines={4} />
-          <SkeletonPanel lines={4} />
-          <SkeletonPanel lines={4} />
-          <SkeletonPanel lines={6} className="lg:col-span-2" />
-          <SkeletonPanel lines={3} />
+          <Card aria-hidden="true">
+            <CardHeader>
+              <Skeleton className="h-3 w-24" />
+            </CardHeader>
+            <CardBody className="flex flex-col items-center justify-center gap-3 py-6">
+              <Skeleton className="h-20 w-20 rounded-full" />
+              <Skeleton className="h-3 w-12" />
+            </CardBody>
+          </Card>
+
+          <Card className="lg:col-span-2" aria-hidden="true">
+            <CardHeader>
+              <Skeleton className="h-3 w-28" />
+            </CardHeader>
+            <CardBody>
+              <div className="grid grid-cols-3 gap-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="text-center">
+                    <Skeleton className="mx-auto h-8 w-12" />
+                    <Skeleton className="mx-auto mt-2 h-2 w-20" />
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
+
+          <Card className="lg:col-span-3" aria-hidden="true">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-2.5 w-16" />
+              </div>
+            </CardHeader>
+            <CardBody>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="rounded-lg border border-line bg-surface p-4">
+                    <div className="mb-3 flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="mt-2 h-2 w-24" />
+                      </div>
+                      <Skeleton className="h-2 w-12 shrink-0" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-2 w-16" />
+                      <Skeleton className="h-2 w-20" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
+
+          <Card aria-hidden="true">
+            <CardHeader>
+              <Skeleton className="h-3 w-28" />
+            </CardHeader>
+            <CardBody>
+              <div className="grid grid-cols-2 gap-3">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="rounded-md border border-line bg-surface-sunken p-4 text-center">
+                    <Skeleton className="mx-auto h-10 w-10" />
+                    <Skeleton className="mx-auto mt-3 h-3 w-16" />
+                    <Skeleton className="mx-auto mt-2 h-2 w-20" />
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
         </div>
       </SkeletonPage>
     )
@@ -92,15 +146,40 @@ export default function SpecialDashboard() {
         </Alert>
       )}
 
-      <StatGrid columns={4} className="mb-6">
-        <StatCard label="Today's classes" value={todaysSchedule.length} />
-        <StatCard label="Before submitted" value={submissionStatus.before ? 1 : 0} />
-        <StatCard label="After pending" value={submissionStatus.after ? 0 : 1} />
-        <StatCard label="Compliance" value={`${compliance}%`} />
-      </StatGrid>
-
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle>Compliance</CardTitle>
+          </CardHeader>
+          <CardBody className="flex flex-col items-center justify-center gap-3 py-6">
+            <ComplianceRing value={compliance} size="sm" />
+            <p className="text-sm font-medium text-ink">{compliance}%</p>
+          </CardBody>
+        </Card>
+
         <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Today's stats</CardTitle>
+          </CardHeader>
+          <CardBody>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="text-center">
+                <p className="text-2xl font-semibold text-ink">{todaysSchedule.length}</p>
+                <p className="mt-1 text-xs text-ink-muted">Today's classes</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-semibold text-ink">{submissionStatus.before ? 1 : 0}</p>
+                <p className="mt-1 text-xs text-ink-muted">Before submitted</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-semibold text-ink">{submissionStatus.after ? 0 : 1}</p>
+                <p className="mt-1 text-xs text-ink-muted">After pending</p>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+
+        <Card className="lg:col-span-3">
           <CardHeader>
             <CardTitle>Today&rsquo;s schedule</CardTitle>
             <Link
@@ -119,28 +198,35 @@ export default function SpecialDashboard() {
               description="You have no scheduled classes for today."
             />
           ) : (
-            <CardBody className="px-0 py-2">
-              <ul className="flex flex-col">
+            <CardBody>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {todaysSchedule.map((item) => (
-                  <li
+                  <div
                     key={item.id}
-                    className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3.5 last:border-b-0 sm:px-5"
+                    className="rounded-lg border border-line bg-surface p-4 transition-colors hover:border-line-strong"
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-ink">{item.subject_name}</p>
-                      <p className="mt-0.5 truncate text-xs text-ink-muted">
-                        {item.educator?.name || '—'} · {item.rooms?.room_code || '—'}
-                      </p>
+                    <div className="mb-3 flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-ink">{item.subject_name}</p>
+                        <p className="mt-1 text-xs text-ink-muted">
+                          {item.educator?.name || '—'}
+                        </p>
+                      </div>
+                      <Badge tone="accent" className="shrink-0">
+                        {formatTime(item.start_time)}
+                      </Badge>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2.5">
-                      <span className="tabular text-sm text-ink">
-                        {formatTime(item.start_time)} – {formatTime(item.end_time)}
+                    <div className="flex items-center gap-2 text-xs text-ink-muted">
+                      <span className="inline-flex items-center gap-1">
+                        <i className="bi bi-geo-alt" />
+                        {item.rooms?.room_code || '—'}
                       </span>
-                      <Badge tone="accent">Scheduled</Badge>
+                      <span>·</span>
+                      <span>{formatTime(item.start_time)} – {formatTime(item.end_time)}</span>
                     </div>
-                  </li>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </CardBody>
           )}
         </Card>
@@ -177,42 +263,6 @@ export default function SpecialDashboard() {
                   </p>
                 </Link>
               ))}
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick actions</CardTitle>
-          </CardHeader>
-          <CardBody className="flex flex-col gap-2">
-            <Button as={Link} to="/special/before" variant="primary" size="lg" icon="bi bi-camera-fill" block>
-              Submit before photo
-            </Button>
-            <Button as={Link} to="/special/after" variant="accent-outline" icon="bi bi-clipboard-check" block>
-              Submit after photo
-            </Button>
-            <Button as={Link} to="/special/reports" variant="secondary" icon="bi bi-exclamation-triangle" block>
-              Report a problem
-            </Button>
-            <Button as={Link} to="/special/history" variant="ghost" icon="bi bi-clock-history" block>
-              View history
-            </Button>
-          </CardBody>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Compliance</CardTitle>
-          </CardHeader>
-          <CardBody className="flex flex-col items-center justify-center gap-5 py-6 sm:flex-row">
-            <ComplianceRing value={compliance} />
-            <div className="text-center sm:text-start">
-              <p className="text-sm font-medium text-ink">Section compliance rate</p>
-              <p className="mt-1 max-w-sm text-sm text-ink-muted">
-                Based on the before and after photos submitted today against your scheduled
-                classes.
-              </p>
             </div>
           </CardBody>
         </Card>
