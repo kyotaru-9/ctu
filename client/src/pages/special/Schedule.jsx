@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { scheduleService } from '../../services/scheduleService'
 import { submissionService } from '../../services/submissionService'
-import { DAY_NAMES_LIST, DAY_SHORT, currentDayIndex, dayName, formatTime, sectionLabel, todayIso } from '../../lib/format'
+import { DAY_NAMES_LIST, currentDayIndex, dayName, formatTime, sectionLabel, todayIso } from '../../lib/format'
 import {
   Alert,
   Badge,
@@ -23,127 +23,6 @@ import {
   TR,
   Table,
 } from '../../components/ui'
-
-function WeeklyScheduleGrid({ schedules, today }) {
-  // Generate 30-minute time slots from 7:00 AM to 6:00 PM
-  function generateTimeSlots() {
-    const slots = []
-    for (let hour = 7; hour < 18; hour++) {
-      slots.push(`${String(hour).padStart(2, '0')}:00`)
-      slots.push(`${String(hour).padStart(2, '0')}:30`)
-    }
-    return slots
-  }
-
-  const timeSlots = generateTimeSlots()
-
-  // Convert time string to minutes
-  function timeToMinutes(timeStr) {
-    const [hours, minutes] = timeStr.split(':').map(Number)
-    return hours * 60 + minutes
-  }
-
-  // Calculate how many 30-minute slots a schedule spans
-  function getSlotSpan(schedule) {
-    const startMins = timeToMinutes(schedule.start_time)
-    const endMins = timeToMinutes(schedule.end_time)
-    const duration = endMins - startMins
-    return Math.max(1, Math.ceil(duration / 30))
-  }
-
-  // Get the starting row number (1-based) for a schedule
-  function getStartRow(schedule) {
-    const startTime = schedule.start_time
-    return timeSlots.indexOf(startTime) + 1
-  }
-
-  // Group schedules by day
-  const schedulesByDay = {}
-  DAY_SHORT.forEach((_, dayIndex) => {
-    schedulesByDay[dayIndex] = schedules.filter(s => s.day_of_week === dayIndex)
-  })
-
-  return (
-    <div className="border border-line rounded-lg overflow-hidden">
-      {/* Header row */}
-      <div className="grid grid-cols-8 bg-surface-sunken border-b border-line">
-        <div className="p-1.5 text-[0.5625rem] font-semibold text-ink-muted uppercase tracking-wide border-r border-line">
-          Time
-        </div>
-        {DAY_SHORT.map((day, index) => (
-          <div
-            key={day}
-            className={`p-1.5 text-center text-[0.5625rem] font-semibold uppercase tracking-wide border-r border-line last:border-r-0 ${
-              index === today ? 'bg-accent-soft text-accent-ink' : 'text-ink-muted'
-            }`}
-          >
-            {day}
-          </div>
-        ))}
-      </div>
-
-      {/* Main grid */}
-      <div
-        className="grid grid-cols-8"
-        style={{
-          gridTemplateRows: `repeat(${timeSlots.length}, 40px)`
-        }}
-      >
-        {/* Time column */}
-        <div className="border-r border-line bg-surface-sunken">
-          {timeSlots.map((time) => (
-            <div key={time} className="p-1.5 text-[0.625rem] text-ink-muted border-b border-line last:border-b-0">
-              {formatTime(time)}
-            </div>
-          ))}
-        </div>
-
-        {/* Day columns */}
-        {DAY_SHORT.map((day, dayIndex) => {
-          const isToday = dayIndex === today
-          const daySchedules = schedulesByDay[dayIndex] || []
-
-          return (
-            <div
-              key={day}
-              className={`border-r border-line last:border-r-0 relative ${
-                isToday ? 'bg-accent-soft/20' : ''
-              }`}
-            >
-              {/* Render schedule cards with grid positioning */}
-              {daySchedules.map((schedule) => {
-                const startRow = getStartRow(schedule)
-                const span = getSlotSpan(schedule)
-
-                return (
-                  <div
-                    key={schedule.id}
-                    className="absolute inset-0 p-1 border border-line bg-surface shadow-xs"
-                    style={{
-                      top: `${(startRow - 1) * 40}px`,
-                      height: `${span * 40}px`
-                    }}
-                  >
-                    <p className="text-[0.625rem] font-medium text-ink truncate">{schedule.subject_name}</p>
-                    <p className="mt-0.5 text-[0.5625rem] text-ink-muted truncate">
-                      {schedule.educator?.name || '—'}
-                    </p>
-                    <p className="mt-0.5 text-[0.5625rem] text-ink-muted truncate">
-                      {schedule.rooms?.room_code || '—'}
-                    </p>
-                    <p className="mt-0.5 text-[0.5rem] text-ink-subtle tabular">
-                      {formatTime(schedule.start_time)} – {formatTime(schedule.end_time)}
-                    </p>
-                  </div>
-                )
-              })}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
 export default function SpecialSchedule() {
   const [schedules, setSchedules] = useState([])
@@ -353,7 +232,41 @@ export default function SpecialSchedule() {
             description="Your section has no classes scheduled."
           />
         ) : (
-          <WeeklyScheduleGrid schedules={schedules} today={today} />
+          <ScrollX minW="48rem">
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Day</TH>
+                  <TH>Time</TH>
+                  <TH>Subject</TH>
+                  <TH>Instructor</TH>
+                  <TH>Room</TH>
+                  <TH>Section</TH>
+                </tr>
+              </THead>
+              <TBody>
+                {schedules.map((item) => (
+                  <TR key={item.id} active={item.day_of_week === today}>
+                    <TD className="whitespace-nowrap font-medium">
+                      {dayName(item.day_of_week)}
+                      {item.day_of_week === today && (
+                        <Badge tone="accent" className="ms-2">
+                          Today
+                        </Badge>
+                      )}
+                    </TD>
+                    <TD className="tabular whitespace-nowrap">
+                      {formatTime(item.start_time)} – {formatTime(item.end_time)}
+                    </TD>
+                    <TD>{item.subject_name}</TD>
+                    <TD>{item.educator?.name || '—'}</TD>
+                    <TD>{item.rooms?.room_code || '—'}</TD>
+                    <TD className="text-ink-muted">{sectionLabel(item.sections)}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </ScrollX>
         )}
       </Card>
     </>
