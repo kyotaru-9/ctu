@@ -61,6 +61,29 @@ export default function ConditionWizard({ type }) {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const [existingSubmissions, setExistingSubmissions] = useState([])
+  const [loadingSubmissions, setLoadingSubmissions] = useState(true)
+
+  const selectedRoom = rooms.find((room) => room.id === roomId)
+  const selectedSchedule = schedules.find((schedule) => schedule.id === scheduleId)
+
+  // Check if submission is already done for this room and schedule
+  function isSubmissionDone() {
+    if (!roomId) return false
+
+    return existingSubmissions.some((sub) => {
+      // For special submissions, data is grouped by occupation
+      const matchesRoom = sub.room?.id === roomId
+      const submission = type === 'before' ? sub.before : sub.after
+      const matchesType = submission !== null && submission !== undefined
+      return matchesRoom && matchesType
+    })
+  }
+
+  const submissionDone = isSubmissionDone()
+
+  // Validate required fields before proceeding
+  const isDetailsValid = roomId && date && time && condition
 
   const stepList = [
     { key: STEPS.DETAILS, label: 'Details' },
@@ -134,8 +157,38 @@ export default function ConditionWizard({ type }) {
     }
   }, [step])
 
-  const selectedRoom = rooms.find((room) => room.id === roomId)
-  const selectedSchedule = schedules.find((schedule) => schedule.id === scheduleId)
+  // Fetch existing submissions to check if already done
+  useEffect(() => {
+    if (!roomId || !date) {
+      setExistingSubmissions([])
+      return
+    }
+
+    let cancelled = false
+
+    async function fetchSubmissions() {
+      setLoadingSubmissions(true)
+      try {
+        const response = await submissionService.getMySubmissions()
+        if (cancelled) return
+
+        const allSubmissions = response.success ? response.data || [] : []
+        const todaySubmissions = allSubmissions.filter(
+          (sub) => sub.date && sub.date.startsWith(date)
+        )
+        setExistingSubmissions(todaySubmissions)
+      } catch {
+        setExistingSubmissions([])
+      } finally {
+        if (!cancelled) setLoadingSubmissions(false)
+      }
+    }
+
+    fetchSubmissions()
+    return () => {
+      cancelled = true
+    }
+  }, [roomId, date])
 
   function acceptFile(file) {
     if (!ACCEPTED.includes(file.type)) {
@@ -195,7 +248,9 @@ export default function ConditionWizard({ type }) {
         }
       }
 
-      const response = await submissionService.submitBefore(payload, onProgress)
+      const response = isBefore
+        ? await submissionService.submitBefore(payload, onProgress)
+        : await submissionService.submitAfter(payload, onProgress)
 
       if (response.success) {
         setDone(true)
@@ -223,18 +278,33 @@ export default function ConditionWizard({ type }) {
               Your submission has been saved.
             </p>
 
-            <div className="mb-6 w-full rounded-md border border-line bg-surface-sunken p-4 text-start">
-              <DetailList
-                columns={1}
-                items={[
-                  { label: 'Room', value: selectedRoom ? `${selectedRoom.room_name} (${selectedRoom.room_code})` : '—' },
-                  { label: 'Date', value: date },
-                  { label: 'Time', value: formatTime(time) },
-                  selectedSchedule && { label: 'Subject', value: selectedSchedule.subject_name },
-                  selectedSchedule && { label: 'Instructor', value: selectedSchedule.instructor_name },
-                  { label: 'Condition', value: <StatusBadge map={CONDITION} value={condition} /> },
-                ]}
-              />
+            <div className="mb-6 w-full">
+              <div className="grid grid-cols-2 gap-3">
+                <Card className="p-4">
+                  <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Room</p>
+                  <p className="mt-1 text-sm text-ink">{selectedRoom?.room_code || '—'}</p>
+                </Card>
+                <Card className="p-4">
+                  <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Date</p>
+                  <p className="mt-1 text-sm text-ink">{date}</p>
+                </Card>
+                <Card className="p-4">
+                  <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Time</p>
+                  <p className="mt-1 text-sm text-ink">{formatTime(time)}</p>
+                </Card>
+                {selectedSchedule && (
+                  <Card className="p-4">
+                    <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Subject</p>
+                    <p className="mt-1 text-sm text-ink">{selectedSchedule.subject_name}</p>
+                  </Card>
+                )}
+                <Card className="p-4 col-span-2">
+                  <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Condition</p>
+                  <div className="mt-1">
+                    <StatusBadge map={CONDITION} value={condition} />
+                  </div>
+                </Card>
+              </div>
             </div>
 
             <Button
@@ -270,20 +340,38 @@ export default function ConditionWizard({ type }) {
             <CardTitle>Summary</CardTitle>
           </CardHeader>
           <CardBody>
-            <DetailList
-              columns={1}
-              items={[
-                { label: 'Room', value: selectedRoom?.room_name || 'Not selected' },
-                { label: 'Date', value: date },
-                { label: 'Time', value: formatTime(time) },
-                selectedSchedule && { label: 'Subject', value: selectedSchedule.subject_name },
-                selectedSchedule && { label: 'Instructor', value: selectedSchedule.instructor_name },
-                {
-                  label: 'Condition',
-                  value: <StatusBadge map={CONDITION} value={condition} />,
-                },
-              ]}
-            />
+            <div className="grid grid-cols-2 gap-3">
+              <Card className="p-4">
+                <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Room</p>
+                <p className="mt-1 text-sm text-ink">{selectedRoom?.room_code || '—'}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Date</p>
+                <p className="mt-1 text-sm text-ink">{date}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Time</p>
+                <p className="mt-1 text-sm text-ink">{formatTime(time)}</p>
+              </Card>
+              {selectedSchedule && (
+                <Card className="p-4">
+                  <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Subject</p>
+                  <p className="mt-1 text-sm text-ink">{selectedSchedule.subject_name}</p>
+                </Card>
+              )}
+              {selectedSchedule?.educator && (
+                <Card className="p-4 col-span-2">
+                  <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Instructor</p>
+                  <p className="mt-1 text-sm text-ink">{selectedSchedule.educator.name}</p>
+                </Card>
+              )}
+              <Card className="p-4 col-span-2">
+                <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Condition</p>
+                <div className="mt-1">
+                  <StatusBadge map={CONDITION} value={condition} />
+                </div>
+              </Card>
+            </div>
           </CardBody>
         </Card>
 
@@ -292,6 +380,12 @@ export default function ConditionWizard({ type }) {
             <CardTitle>Submission details</CardTitle>
           </CardHeader>
           <CardBody>
+            {submissionDone && (
+              <Alert tone="ok" className="mb-5">
+                {isBefore ? 'Before' : 'After'} photo has already been submitted for this class.
+              </Alert>
+            )}
+
             {error && (
               <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
                 {error}
@@ -310,10 +404,11 @@ export default function ConditionWizard({ type }) {
                     setScheduleId('')
                   }}
                   placeholder={loadingRooms ? 'Loading rooms…' : 'Select a room'}
+                  hint={!roomId ? 'Room is required' : ''}
                 >
                   {rooms.map((room) => (
                     <option key={room.id} value={room.id}>
-                      {room.room_code} — {room.room_name}
+                      {room.room_code}
                     </option>
                   ))}
                 </Select>
@@ -328,6 +423,7 @@ export default function ConditionWizard({ type }) {
                       setDate(event.target.value)
                       setScheduleId('')
                     }}
+                    hint={!date ? 'Date is required' : ''}
                   />
                   <Input
                     label="Time"
@@ -338,7 +434,7 @@ export default function ConditionWizard({ type }) {
                     hint={
                       selectedSchedule
                         ? `From ${selectedSchedule.subject_name}`
-                        : 'Entered manually'
+                        : !time ? 'Time is required' : 'Entered manually'
                     }
                   />
                 </div>
@@ -360,7 +456,7 @@ export default function ConditionWizard({ type }) {
                     >
                       {schedules.map((schedule) => (
                         <option key={schedule.id} value={schedule.id}>
-                          {schedule.subject_name} — {schedule.instructor_name} (
+                          {schedule.subject_name} — {schedule.educator?.name || '—'} (
                           {formatTime(schedule.start_time)}–{formatTime(schedule.end_time)})
                         </option>
                       ))}
@@ -385,6 +481,9 @@ export default function ConditionWizard({ type }) {
                       { value: 'not_clean', label: 'Not clean', icon: 'bi bi-x-lg' },
                     ]}
                   />
+                  {!condition && (
+                    <p className="mt-2 text-xs text-bad">Condition is required</p>
+                  )}
                 </div>
 
                 <div>
@@ -411,11 +510,30 @@ export default function ConditionWizard({ type }) {
                 <Button
                   variant="primary"
                   size="lg"
-                  iconEnd="bi bi-arrow-right"
+                  iconEnd={submissionDone ? "bi bi-check-lg" : "bi bi-arrow-right"}
                   block
-                  onClick={() => setStep(STEPS.CAPTURE)}
+                  disabled={submissionDone || !isDetailsValid}
+                  onClick={() => {
+                    if (!roomId) {
+                      setError('Please select a room.')
+                      return
+                    }
+                    if (!date) {
+                      setError('Please select a date.')
+                      return
+                    }
+                    if (!time) {
+                      setError('Please select a time.')
+                      return
+                    }
+                    if (!condition) {
+                      setError('Please select a condition.')
+                      return
+                    }
+                    setStep(STEPS.CAPTURE)
+                  }}
                 >
-                  Continue
+                  {submissionDone ? 'Done' : 'Continue'}
                 </Button>
               </div>
             )}
@@ -483,7 +601,7 @@ export default function ConditionWizard({ type }) {
               <div>
                 <PhotoPreview
                   dataUrl={photoPreview}
-                  alt={`${isBefore ? 'Before' : 'After'} photo of ${selectedRoom?.room_name ?? 'room'}`}
+                  alt={`${isBefore ? 'Before' : 'After'} photo of ${selectedRoom?.room_code ?? 'room'}`}
                   onRetake={handleRetake}
                   onCancel={handleCancel}
                   onConfirm={handleSubmit}

@@ -37,5 +37,11 @@ export const submissionService = {
     const prefix = getRolePrefix()
     const response = await api.get(`${prefix}/submissions/${id}`)
     return response.data
+  },
+
+  async getDashboardData() {
+    const prefix = getRolePrefix()
+    const response = await api.get(`${prefix}/dashboard`)
+    return response.data
   }
 }

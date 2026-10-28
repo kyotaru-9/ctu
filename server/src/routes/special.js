@@ -64,14 +64,28 @@ router.get('/dashboard', async (req, res) => {
 
     const [scheduleRes, submissionsRes] = await Promise.all([
       supabaseAdmin.from('schedules').select('*, rooms(*), sections(*)').eq('section_id', sectionId).eq('day_of_week', today).eq('is_active', true).order('start_time'),
-      supabaseAdmin.from('room_submissions').select('*').eq('section_id', sectionId).gte('submitted_at', todayStr)
+      supabaseAdmin.from('room_submissions').select(HISTORY_SELECT).eq('section_id', sectionId).gte('submitted_at', todayStr)
     ])
 
     const todaysSchedule = scheduleRes.data || []
     const submissions = submissionsRes.data || []
 
-    const before = submissions.find(s => s.submission_type === 'before')
-    const after = submissions.find(s => s.submission_type === 'after')
+    // Group submissions by occupation
+    const groupedSubmissions = groupByOccupation(submissions)
+
+    // Extract before/after submissions from today's occupations
+    let before = null
+    let after = null
+
+    // Check if there's any before or after submission for today
+    groupedSubmissions.forEach(group => {
+      if (group.before && !before) {
+        before = group.before
+      }
+      if (group.after && !after) {
+        after = group.after
+      }
+    })
 
     res.json({
       success: true,
@@ -81,6 +95,7 @@ router.get('/dashboard', async (req, res) => {
       }
     })
   } catch (err) {
+    console.error('[Server] /dashboard error:', err)
     res.status(500).json({ success: false, message: 'Failed to load dashboard' })
   }
 })
@@ -316,6 +331,271 @@ router.get('/submissions/my', async (req, res) => {
   } catch (err) {
     console.error('[Server] /submissions/my error:', err);
     res.status(500).json({ success: false, message: 'Failed to load submissions' })
+  }
+})
+
+// Rotational Cleaning - Get today's assignment
+router.get('/rotational/today', async (req, res) => {
+  try {
+    const sectionId = req.user.section_id
+    const jsDay = new Date().getDay()
+    // Convert JS day (0=Sunday, 1=Monday, ..., 6=Saturday) to DB day (1=Monday, ..., 7=Sunday)
+    const dbDay = jsDay === 0 ? 7 : jsDay
+    const todayStr = new Date().toISOString().split('T')[0]
+
+    console.log('Rotational query:', { sectionId, jsDay, dbDay, todayStr })
+
+    // Get today's assignment
+    const { data: assignment, error: assignError } = await supabaseAdmin
+      .from('area_assignments')
+      .select('*, area:areas(*)')
+      .eq('section_id', sectionId)
+      .eq('day_of_week', dbDay)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle()
+
+    console.log('Assignment result:', { assignment, assignError })
+
+    if (assignError && assignError.code !== 'PGRST116') throw assignError
+
+    // Check if there's already a cleaning record for today
+    let existingRecord = null
+    if (assignment) {
+      const { data: record, error: recordError } = await supabaseAdmin
+        .from('cleaning_records')
+        .select('*')
+        .eq('section_id', sectionId)
+        .eq('area_id', assignment.area_id)
+        .gte('submitted_at', todayStr)
+        .limit(1)
+        .maybeSingle()
+
+      if (!recordError) existingRecord = record
+    }
+
+    res.json({
+      success: true,
+      data: {
+        assignment: assignment || null,
+        existingRecord: existingRecord || null
+      }
+    })
+  } catch (err) {
+    console.error('Rotational error:', err)
+    res.status(500).json({ success: false, message: 'Failed to load rotational assignment' })
+  }
+})
+
+// Rotational Cleaning - Submit before photo
+router.post('/rotational/before', upload.single('image'), async (req, res) => {
+  try {
+    const { area_id, submitted_time, image_number } = req.body
+    const file = req.file
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Image is required' })
+    }
+
+    if (!area_id) {
+      return res.status(400).json({ success: false, message: 'Area ID is required' })
+    }
+
+    const imageNum = image_number || '1'
+
+    // Upload to Supabase Storage
+    const fileName = `rotational/${req.user.section_id}/${Date.now()}-before-${imageNum}-${file.originalname}`
+    const { error: uploadError } = await supabaseAdmin.storage.from('cleaning-records').upload(fileName, file.buffer, {
+      contentType: file.mimetype
+    })
+    if (uploadError) throw uploadError
+
+    const { data: urlData } = supabaseAdmin.storage.from('cleaning-records').getPublicUrl(fileName)
+    const imageUrl = urlData.publicUrl
+
+    // Create or update cleaning record
+    const todayStr = new Date().toISOString().split('T')[0]
+    const { data: existing, error: checkError } = await supabaseAdmin
+      .from('cleaning_records')
+      .select('*')
+      .eq('section_id', req.user.section_id)
+      .eq('area_id', area_id)
+      .gte('submitted_at', todayStr)
+      .limit(1)
+      .maybeSingle()
+
+    // Use provided time or current time
+    const capturedTime = submitted_time
+      ? `${todayStr}T${submitted_time}:00`
+      : new Date().toISOString()
+
+    let data
+    if (existing) {
+      // Update existing record
+      const updateData = {
+        status: 'pending'
+      }
+      if (imageNum === '1') {
+        updateData.before_image_url = imageUrl
+        updateData.before_captured_at = capturedTime
+      } else {
+        updateData.before_image_url_2 = imageUrl
+        updateData.before_captured_at_2 = capturedTime
+      }
+
+      const { data: updated, error: updateError } = await supabaseAdmin
+        .from('cleaning_records')
+        .update(updateData)
+        .eq('id', existing.id)
+        .select()
+        .single()
+      if (updateError) throw updateError
+      data = updated
+    } else {
+      // Create new record
+      const insertData = {
+        section_id: req.user.section_id,
+        area_id,
+        status: 'pending'
+      }
+      if (imageNum === '1') {
+        insertData.before_image_url = imageUrl
+        insertData.before_captured_at = capturedTime
+      } else {
+        insertData.before_image_url_2 = imageUrl
+        insertData.before_captured_at_2 = capturedTime
+      }
+
+      const { data: created, error: createError } = await supabaseAdmin
+        .from('cleaning_records')
+        .insert(insertData)
+        .select()
+        .single()
+      if (createError) throw createError
+      data = created
+    }
+
+    res.json({ success: true, data })
+  } catch (err) {
+    console.error('Rotational before error:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to submit before photo' })
+  }
+})
+
+// Rotational Cleaning - Submit after photo
+router.post('/rotational/after', upload.single('image'), async (req, res) => {
+  try {
+    const { area_id, submitted_time, image_number } = req.body
+    const file = req.file
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Image is required' })
+    }
+
+    if (!area_id) {
+      return res.status(400).json({ success: false, message: 'Area ID is required' })
+    }
+
+    const imageNum = image_number || '1'
+
+    // Upload to Supabase Storage
+    const fileName = `rotational/${req.user.section_id}/${Date.now()}-after-${imageNum}-${file.originalname}`
+    const { error: uploadError } = await supabaseAdmin.storage.from('cleaning-records').upload(fileName, file.buffer, {
+      contentType: file.mimetype
+    })
+    if (uploadError) throw uploadError
+
+    const { data: urlData } = supabaseAdmin.storage.from('cleaning-records').getPublicUrl(fileName)
+    const imageUrl = urlData.publicUrl
+
+    // Find today's record
+    const todayStr = new Date().toISOString().split('T')[0]
+    const { data: existing, error: checkError } = await supabaseAdmin
+      .from('cleaning_records')
+      .select('*')
+      .eq('section_id', req.user.section_id)
+      .eq('area_id', area_id)
+      .gte('submitted_at', todayStr)
+      .limit(1)
+      .single()
+
+    if (checkError || !existing) {
+      return res.status(400).json({ success: false, message: 'No before photo found for today. Please submit before photo first.' })
+    }
+
+    // Use provided time or current time
+    const capturedTime = submitted_time
+      ? `${todayStr}T${submitted_time}:00`
+      : new Date().toISOString()
+
+    // Update record with after photo
+    const updateData = {
+      status: 'completed'
+    }
+    if (imageNum === '1') {
+      updateData.after_image_url = imageUrl
+      updateData.after_captured_at = capturedTime
+    } else {
+      updateData.after_image_url_2 = imageUrl
+      updateData.after_captured_at_2 = capturedTime
+    }
+
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from('cleaning_records')
+      .update(updateData)
+      .eq('id', existing.id)
+      .select()
+      .single()
+
+    if (updateError) throw updateError
+
+    res.json({ success: true, data: updated })
+  } catch (err) {
+    console.error('Rotational after error:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to submit after photo' })
+  }
+})
+
+// Rotational Cleaning - Get history
+router.get('/rotational/history', async (req, res) => {
+  try {
+    const { data: records, error } = await supabaseAdmin
+      .from('cleaning_records')
+      .select('*, area:areas(*)')
+      .eq('section_id', req.user.section_id)
+      .order('submitted_at', { ascending: false })
+
+    if (error) {
+      console.error('Rotational history query error:', error)
+      throw error
+    }
+
+    res.json({ success: true, data: records || [] })
+  } catch (err) {
+    console.error('Rotational history error:', err)
+    res.status(500).json({ success: false, message: 'Failed to load rotational history' })
+  }
+})
+
+// Rotational Cleaning - Get weekly schedule
+router.get('/rotational/schedule', async (req, res) => {
+  try {
+    const { data: assignments, error } = await supabaseAdmin
+      .from('area_assignments')
+      .select('*, area:areas(*)')
+      .eq('section_id', req.user.section_id)
+      .eq('is_active', true)
+      .order('day_of_week')
+
+    if (error) {
+      console.error('Rotational schedule query error:', error)
+      throw error
+    }
+
+    res.json({ success: true, data: assignments || [] })
+  } catch (err) {
+    console.error('Rotational schedule error:', err)
+    res.status(500).json({ success: false, message: 'Failed to load rotational schedule' })
   }
 })
 

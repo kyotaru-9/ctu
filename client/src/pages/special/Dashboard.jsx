@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { scheduleService } from '../../services/scheduleService'
 import { submissionService } from '../../services/submissionService'
-import { currentDayIndex, formatTime, todayIso, welcomeText } from '../../lib/format'
+import { formatTime, welcomeText } from '../../lib/format'
 import {
   Alert,
   Badge,
@@ -36,31 +35,19 @@ export default function SpecialDashboard() {
 
     async function fetchDashboardData() {
       try {
-        const today = currentDayIndex()
-        const [scheduleRes, submissionsRes] = await Promise.all([
-          scheduleService.getMySchedules(),
-          submissionService.getMySubmissions(),
-        ])
+        const response = await submissionService.getDashboardData()
         if (cancelled) return
 
-        const allSchedules = scheduleRes.success ? scheduleRes.data || [] : []
-        setTodaysSchedule(allSchedules.filter((item) => item.day_of_week === today))
+        if (response.success) {
+          const { todaysSchedule, submissionStatus: status } = response.data
+          setTodaysSchedule(todaysSchedule || [])
+          setSubmissionStatus(status || { before: null, after: null })
 
-        if (submissionsRes.success) {
-          const submissions = submissionsRes.data || []
-          const todayStr = todayIso()
-          const todaysSubmissions = submissions.filter(
-            (item) => item.submitted_at && item.submitted_at.startsWith(todayStr)
-          )
-
-          setSubmissionStatus({
-            before: todaysSubmissions.find((item) => item.submission_type === 'before') ?? null,
-            after: todaysSubmissions.find((item) => item.submission_type === 'after') ?? null,
-          })
-
-          const totalExpected = allSchedules.length * 2
+          // Calculate compliance
+          const totalExpected = (todaysSchedule?.length || 0) * 2
+          const submittedCount = (status.before ? 1 : 0) + (status.after ? 1 : 0)
           setCompliance(
-            totalExpected > 0 ? Math.round((todaysSubmissions.length / totalExpected) * 100) : 0
+            totalExpected > 0 ? Math.round((submittedCount / totalExpected) * 100) : 0
           )
         }
       } catch (err) {
@@ -142,7 +129,7 @@ export default function SpecialDashboard() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-ink">{item.subject_name}</p>
                       <p className="mt-0.5 truncate text-xs text-ink-muted">
-                        {item.instructor_name || '—'} · {item.rooms?.room_name || '—'}
+                        {item.educator?.name || '—'} · {item.rooms?.room_code || '—'}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2.5">
