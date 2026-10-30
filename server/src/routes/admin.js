@@ -1,10 +1,22 @@
 import { Router } from 'express'
 import { requireAdmin } from '../middleware/auth.js'
 import { supabaseAdmin } from '../config/supabase.js'
+import multer from 'multer'
 
 const router = Router()
 
 router.use(requireAdmin)
+
+const upload = multer({
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, PNG, and WEBP are allowed.'))
+    }
+  }
+})
 
 /** Shared password shape: eight random base-36 characters plus a fixed tail. */
 function generatePassword() {
@@ -2248,6 +2260,218 @@ router.delete('/cleaning-records/:id', async (req, res) => {
     res.json({ success: true, message: 'Cleaning record deleted' })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to delete cleaning record' })
+  }
+})
+
+// Exemption Days - Admin creates days where submissions are not needed
+const EXEMPTION_DAY_SELECT = '*, section:sections(*), room:rooms(*), area:areas(*), schedule:schedules(*)'
+
+router.get('/exemption-days', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('exemption_days')
+      .select(EXEMPTION_DAY_SELECT)
+      .order('exemption_date', { ascending: false })
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load exemption days' })
+  }
+})
+
+router.post('/exemption-days', async (req, res) => {
+  try {
+    const { exemption_date, exemption_type, section_id, room_id, area_id, schedule_id, reason } = req.body
+
+    if (!exemption_date || !exemption_type || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Exemption date, type, and reason are required'
+      })
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('exemption_days')
+      .insert({
+        exemption_date,
+        exemption_type,
+        section_id: section_id || null,
+        room_id: room_id || null,
+        area_id: area_id || null,
+        schedule_id: schedule_id || null,
+        reason,
+        created_by: req.user.id,
+        is_active: true
+      })
+      .select(EXEMPTION_DAY_SELECT)
+      .single()
+
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to create exemption day' })
+  }
+})
+
+router.put('/exemption-days/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('exemption_days')
+      .update(req.body)
+      .eq('id', req.params.id)
+      .select(EXEMPTION_DAY_SELECT)
+      .single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to update exemption day' })
+  }
+})
+
+router.delete('/exemption-days/:id', async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin
+      .from('exemption_days')
+      .delete()
+      .eq('id', req.params.id)
+    if (error) throw error
+    res.json({ success: true, message: 'Exemption day deleted' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to delete exemption day' })
+  }
+})
+
+// Excuse Requests - Admin manages student excuse requests
+const EXCUSE_REQUEST_SELECT = '*, section:sections(*), room:rooms(*), area:areas(*), schedule:schedules(*), requested_by:profiles!excuse_requests_requested_by_fkey(id, full_name, role), reviewed_by:profiles!excuse_requests_reviewed_by_fkey(id, full_name)'
+
+router.get('/excuse-requests', async (req, res) => {
+  try {
+    const { status } = req.query
+    let query = supabaseAdmin
+      .from('excuse_requests')
+      .select(EXCUSE_REQUEST_SELECT)
+      .order('excuse_date', { ascending: false })
+
+    if (status) {
+      query = query.eq('status', status)
+    }
+
+    const { data, error } = await query
+    if (error) {
+      console.error('Excuse requests query error:', error)
+      throw error
+    }
+    res.json({ success: true, data })
+  } catch (err) {
+    console.error('Excuse requests error:', err)
+    res.status(500).json({ success: false, message: 'Failed to load excuse requests' })
+  }
+})
+
+router.post('/excuse-requests/:id/approve', async (req, res) => {
+  try {
+    const { admin_note } = req.body
+    const { data, error } = await supabaseAdmin
+      .from('excuse_requests')
+      .update({
+        status: 'approved',
+        admin_note,
+        reviewed_by: req.user.id,
+        reviewed_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id)
+      .select(EXCUSE_REQUEST_SELECT)
+      .single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to approve excuse request' })
+  }
+})
+
+router.post('/excuse-requests/:id/reject', async (req, res) => {
+  try {
+    const { admin_note } = req.body
+    const { data, error } = await supabaseAdmin
+      .from('excuse_requests')
+      .update({
+        status: 'rejected',
+        admin_note,
+        reviewed_by: req.user.id,
+        reviewed_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id)
+      .select(EXCUSE_REQUEST_SELECT)
+      .single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to reject excuse request' })
+  }
+})
+
+// Admin creates an excuse directly (auto-approved)
+router.post('/excuse-requests/admin-create', upload.single('image'), async (req, res) => {
+  try {
+    const { section_id, excuse_date, excuse_type, room_id, area_id, schedule_id, reason } = req.body
+    const file = req.file
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Image proof is required' })
+    }
+
+    if (!section_id || !excuse_date || !excuse_type || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Section, excuse date, type, and reason are required'
+      })
+    }
+
+    // Upload to Supabase Storage
+    const fileName = `excuse-proofs/${section_id}/${Date.now()}-${file.originalname}`
+    const { error: uploadError } = await supabaseAdmin
+      .storage
+      .from('excuse-proofs')
+      .upload(fileName, file.buffer, {
+        contentType: file.mimetype
+      })
+    if (uploadError) throw uploadError
+
+    const { data: urlData } = supabaseAdmin.storage.from('excuse-proofs').getPublicUrl(fileName)
+    const imageUrl = urlData.publicUrl
+
+    // Get the profile ID for the admin
+    const { data: adminProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('auth_user_id', req.user.id)
+      .single()
+
+    // Create excuse request with auto-approved status
+    const { data, error } = await supabaseAdmin
+      .from('excuse_requests')
+      .insert({
+        section_id,
+        requested_by: adminProfile.id,
+        excuse_date,
+        excuse_type,
+        room_id: room_id || null,
+        area_id: area_id || null,
+        schedule_id: schedule_id || null,
+        reason,
+        proof_image_url: imageUrl,
+        status: 'approved',
+        admin_note: 'Created by admin',
+        reviewed_by: adminProfile.id,
+        reviewed_at: new Date().toISOString()
+      })
+      .select(EXCUSE_REQUEST_SELECT)
+      .single()
+
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to create excuse' })
   }
 })
 

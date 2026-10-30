@@ -18,7 +18,7 @@ const REQUIRED_COLUMNS = ['section', 'area', 'day']
 /** Headers plus one example row, so the expected shape is visible. */
 const TEMPLATE_SHEET = [
   ['section', 'area', 'day'],
-  ['BSIT 3A', 'First Floor', 3],
+  ['BSIT 3A', 'First Floor', 4],
 ]
 
 /**
@@ -99,8 +99,8 @@ export default function AreaAssignmentsBatchUploadModal({ open, onClose, onImpor
           The first sheet needs a header row with <strong>section</strong>, <strong>area</strong> and{' '}
           <strong>day</strong>. Each row assigns a section to an area on a specific day.{' '}
           <strong>Section</strong> and <strong>area</strong> must match names that already exist — if any
-          name is unknown, nothing is imported. <strong>Day</strong> runs from <strong>1 = Sunday</strong>{' '}
-          to <strong>7 = Saturday</strong>.
+          name is unknown, nothing is imported. <strong>Day</strong> runs from <strong>1 = Monday</strong>{' '}
+          to <strong>7 = Sunday</strong>.
         </>
       }
       aliases={COLUMN_ALIASES}
@@ -126,7 +126,7 @@ export default function AreaAssignmentsBatchUploadModal({ open, onClose, onImpor
           render: (row) =>
             row.day_number >= 1 && row.day_number <= 7 ? (
               <Badge tone="info">
-                {DAY_NAMES_LIST[row.day_number - 1]} ({row.day_number})
+                {DAY_NAMES_LIST[(row.day_number % 7)]} ({row.day_number})
               </Badge>
             ) : (
               row.day || '—'

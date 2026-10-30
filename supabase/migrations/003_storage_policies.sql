@@ -3,19 +3,21 @@
 
 -- Create storage buckets
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES 
+VALUES
     ('room-submissions', 'room-submissions', false, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp']),
     ('report-proofs', 'report-proofs', false, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp']),
     ('profile-images', 'profile-images', false, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp'])
 ON CONFLICT (id) DO NOTHING;
 
 -- Room submissions bucket policies
+DROP POLICY IF EXISTS "Admins can manage room submissions" ON storage.objects;
 CREATE POLICY "Admins can manage room submissions" ON storage.objects
     FOR ALL USING (
-        bucket_id = 'room-submissions' AND 
+        bucket_id = 'room-submissions' AND
         EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role = 'admin')
     );
 
+DROP POLICY IF EXISTS "Students can upload own submissions" ON storage.objects;
 CREATE POLICY "Students can upload own submissions" ON  storage.objects
     FOR INSERT WITH CHECK (
         bucket_id = 'room-submissions' AND
@@ -24,6 +26,7 @@ CREATE POLICY "Students can upload own submissions" ON  storage.objects
         )
     );
 
+DROP POLICY IF EXISTS "Students can view own submissions" ON storage.objects;
 CREATE POLICY "Students can view own submissions" ON storage.objects
     FOR SELECT USING (
         bucket_id = 'room-submissions' AND
@@ -33,12 +36,14 @@ CREATE POLICY "Students can view own submissions" ON storage.objects
     );
 
 -- Report proofs bucket policies
+DROP POLICY IF EXISTS "Admins can manage report proofs" ON storage.objects;
 CREATE POLICY "Admins can manage report proofs" ON storage.objects
     FOR ALL USING (
-        bucket_id = 'report-proofs' AND 
+        bucket_id = 'report-proofs' AND
         EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role = 'admin')
     );
 
+DROP POLICY IF EXISTS "Students can upload own report proofs" ON storage.objects;
 CREATE POLICY "Students can upload own report proofs" ON storage.objects
     FOR INSERT WITH CHECK (
         bucket_id = 'report-proofs' AND
@@ -47,6 +52,7 @@ CREATE POLICY "Students can upload own report proofs" ON storage.objects
         )
     );
 
+DROP POLICY IF EXISTS "Students can view own report proofs" ON storage.objects;
 CREATE POLICY "Students can view own report proofs" ON storage.objects
     FOR SELECT USING (
         bucket_id = 'report-proofs' AND
@@ -56,18 +62,21 @@ CREATE POLICY "Students can view own report proofs" ON storage.objects
     );
 
 -- Profile images bucket policies
+DROP POLICY IF EXISTS "Admins can manage profile images" ON storage.objects;
 CREATE POLICY "Admins can manage profile images" ON storage.objects
     FOR ALL USING (
-        bucket_id = 'profile-images' AND 
+        bucket_id = 'profile-images' AND
         EXISTS (SELECT 1 FROM profiles WHERE auth_user_id = auth.uid() AND role = 'admin')
     );
 
+DROP POLICY IF EXISTS "Users can upload own profile image" ON storage.objects;
 CREATE POLICY "Users can upload own profile image" ON storage.objects
     FOR INSERT WITH CHECK (
         bucket_id = 'profile-images' AND
         name LIKE (SELECT id::text || '%' FROM profiles WHERE auth_user_id = auth.uid())
     );
 
+DROP POLICY IF EXISTS "Users can view own profile image" ON storage.objects;
 CREATE POLICY "Users can view own profile image" ON storage.objects
     FOR SELECT USING (
         bucket_id = 'profile-images' AND

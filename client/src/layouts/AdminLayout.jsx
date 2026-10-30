@@ -6,6 +6,7 @@ import {
   biClipboard,
   biDoorOpen,
   biExclamation,
+  biFileText,
   biGraph,
   biGraduationCap,
   biHouse,
@@ -50,6 +51,7 @@ const navGroups = [
     items: [
       { path: 'reports', label: 'Reports', icon: biExclamation },
       { path: 'analytics', label: 'Analytics', icon: biGraph },
+      { path: 'excuse-requests', label: 'Excuse Requests', icon: biFileText },
       { path: 'audit-logs', label: 'Audit Logs', icon: biJournal },
     ]
   },

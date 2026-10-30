@@ -435,9 +435,9 @@ export default function SpecialRotational() {
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-ink">{todayData.assignment.area.name}</h3>
-                      <p className="text-sm text-ink-muted">{todayData.assignment.area.description}</p>
-                      <p className="text-sm text-ink-muted">Floor: {todayData.assignment.area.floor}</p>
+                      <h3 className="font-semibold">{todayData.assignment.area.name}</h3>
+                      <p className="text-sm">{todayData.assignment.area.description}</p>
+                      <p className="text-sm">Floor: {todayData.assignment.area.floor}</p>
                     </div>
                     {todayData.existingRecord && (
                       <Badge tone={STATUS_TONES[todayData.existingRecord.status]}>
@@ -456,7 +456,7 @@ export default function SpecialRotational() {
                   <div className="grid grid-cols-2 gap-4">
                     {/* Before Photo 1 */}
                     <div className="rounded-md border border-line bg-surface-sunken p-4">
-                      <h4 className="mb-3 text-sm font-semibold text-ink">Before Photo 1</h4>
+                      <h4 className="mb-3 text-sm font-semibold">Before Photo 1</h4>
                       {hasBefore1 ? (
                         <div className="space-y-2">
                           <a
@@ -467,18 +467,18 @@ export default function SpecialRotational() {
                           >
                             View photo
                           </a>
-                          <p className="text-xs text-ink-muted">
+                          <p className="text-xs">
                             Captured: {formatDate(todayData.existingRecord.before_captured_at)}
                           </p>
                         </div>
                       ) : (
-                        <p className="text-sm text-ink-muted">Not yet submitted</p>
+                        <p className="text-sm">Not yet submitted</p>
                       )}
                     </div>
 
                     {/* Before Photo 2 */}
                     <div className="rounded-md border border-line bg-surface-sunken p-4">
-                      <h4 className="mb-3 text-sm font-semibold text-ink">Before Photo 2</h4>
+                      <h4 className="mb-3 text-sm font-semibold">Before Photo 2</h4>
                       {hasBefore2 ? (
                         <div className="space-y-2">
                           <a
@@ -489,18 +489,18 @@ export default function SpecialRotational() {
                           >
                             View photo
                           </a>
-                          <p className="text-xs text-ink-muted">
+                          <p className="text-xs">
                             Captured: {formatDate(todayData.existingRecord.before_captured_at_2)}
                           </p>
                         </div>
                       ) : (
-                        <p className="text-sm text-ink-muted">Not yet submitted</p>
+                        <p className="text-sm">Not yet submitted</p>
                       )}
                     </div>
 
                     {/* After Photo 1 */}
                     <div className="rounded-md border border-line bg-surface-sunken p-4">
-                      <h4 className="mb-3 text-sm font-semibold text-ink">After Photo 1</h4>
+                      <h4 className="mb-3 text-sm font-semibold">After Photo 1</h4>
                       {hasAfter1 ? (
                         <div className="space-y-2">
                           <a
@@ -511,18 +511,18 @@ export default function SpecialRotational() {
                           >
                             View photo
                           </a>
-                          <p className="text-xs text-ink-muted">
+                          <p className="text-xs">
                             Captured: {formatDate(todayData.existingRecord.after_captured_at)}
                           </p>
                         </div>
                       ) : (
-                        <p className="text-sm text-ink-muted">Not yet submitted</p>
+                        <p className="text-sm">Not yet submitted</p>
                       )}
                     </div>
 
                     {/* After Photo 2 */}
                     <div className="rounded-md border border-line bg-surface-sunken p-4">
-                      <h4 className="mb-3 text-sm font-semibold text-ink">After Photo 2</h4>
+                      <h4 className="mb-3 text-sm font-semibold">After Photo 2</h4>
                       {hasAfter2 ? (
                         <div className="space-y-2">
                           <a
@@ -533,12 +533,12 @@ export default function SpecialRotational() {
                           >
                             View photo
                           </a>
-                          <p className="text-xs text-ink-muted">
+                          <p className="text-xs">
                             Captured: {formatDate(todayData.existingRecord.after_captured_at_2)}
                           </p>
                         </div>
                       ) : (
-                        <p className="text-sm text-ink-muted">Not yet submitted</p>
+                        <p className="text-sm">Not yet submitted</p>
                       )}
                     </div>
                   </div>

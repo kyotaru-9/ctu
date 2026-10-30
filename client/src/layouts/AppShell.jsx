@@ -95,11 +95,12 @@ function UserCard({ user, roleLabel, onSignOut, compact = false }) {
  * bottom tab bar and no drawer; the rest fall back to a slide-in Drawer, so
  * the content column is never squeezed either way.
  */
-export default function AppShell({ items, basePath, roleLabel, bottomItems, groups }) {
+export default function AppShell({ items, basePath, roleLabel, bottomItems, groups, theme }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [currentTime, setCurrentTime] = useState(new Date())
   const [collapsedGroups, setCollapsedGroups] = useState(() => {
     // Initialize all groups as collapsed except the first one
     const initial = {}
@@ -110,6 +111,14 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems, grou
     }
     return initial
   })
+
+  // Update time every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const toggleGroup = (groupLabel) => {
     setCollapsedGroups(prev => {
@@ -151,7 +160,7 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems, grou
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={theme || undefined}>
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-60 focus:rounded-md focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:text-white"
@@ -206,6 +215,16 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems, grou
             </div>
 
             <div className="ms-auto flex items-center gap-2">
+              {/* Live time and date */}
+              <div className="hidden sm:flex flex-col items-end text-right mr-2">
+                <time className="text-base sm:text-lg font-semibold text-ink" dateTime={currentTime.toISOString()}>
+                  {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                </time>
+                <time className="text-xs sm:text-sm text-ink-muted" dateTime={currentTime.toISOString()}>
+                  {currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                </time>
+              </div>
+
               <Menu
                 label="Account menu"
                 trigger={
@@ -215,6 +234,15 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems, grou
                     className="flex items-center gap-2 rounded-md py-1.5 ps-1.5 pe-2 transition-colors hover:bg-surface-sunken"
                   >
                     <IconTile icon={biPersonBadge} size="sm" tone="accent" />
+                    {/* Mobile time display */}
+                    <div className="flex flex-col items-end sm:hidden">
+                      <time className="text-sm font-semibold text-ink" dateTime={currentTime.toISOString()}>
+                        {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                      </time>
+                      <time className="text-xs text-ink-muted" dateTime={currentTime.toISOString()}>
+                        {currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </time>
+                    </div>
                     <span className="hidden max-w-32 truncate text-sm font-medium text-ink sm:block lg:hidden">
                       {user?.full_name || user?.section?.section_name || 'Account'}
                     </span>

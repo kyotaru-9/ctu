@@ -152,19 +152,19 @@ export default function SpecialSchedule() {
                     <div className="grid grid-cols-2 gap-3">
                       <Card className="p-4">
                         <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Time</p>
-                        <p className="mt-1 text-sm text-ink">{formatTime(item.start_time)} – {formatTime(item.end_time)}</p>
+                        <p className="mt-1 text-sm">{formatTime(item.start_time)} – {formatTime(item.end_time)}</p>
                       </Card>
                       <Card className="p-4">
                         <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Subject</p>
-                        <p className="mt-1 text-sm text-ink">{item.subject_name}</p>
+                        <p className="mt-1 text-sm">{item.subject_name}</p>
                       </Card>
                       <Card className="p-4">
                         <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Instructor</p>
-                        <p className="mt-1 text-sm text-ink">{item.educator?.name || item.educator_id || '—'}</p>
+                        <p className="mt-1 text-sm">{item.educator?.name || item.educator_id || '—'}</p>
                       </Card>
                       <Card className="p-4">
                         <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">Room</p>
-                        <p className="mt-1 text-sm text-ink">{item.rooms?.room_code || '—'}</p>
+                        <p className="mt-1 text-sm">{item.rooms?.room_code || '—'}</p>
                       </Card>
                     </div>
 

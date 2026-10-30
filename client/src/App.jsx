@@ -22,6 +22,7 @@ import AdminEducators from './pages/admin/Educators'
 import AdminAreas from './pages/admin/Areas'
 import AdminAreaAssignments from './pages/admin/AreaAssignments'
 import AdminCleanArea from './pages/admin/CleanArea'
+import AdminExcuseRequests from './pages/admin/ExcuseRequests'
 
 // Student Pages
 import StudentDashboard from './pages/student/Dashboard'
@@ -31,6 +32,7 @@ import StudentSubmit from './pages/student/Submit'
 import StudentReports from './pages/student/Reports'
 import StudentHistory from './pages/student/History'
 import StudentRotational from './pages/student/Rotational'
+import StudentExcuses from './pages/student/Excuses'
 
 // Special Student Pages
 import SpecialDashboard from './pages/special/Dashboard'
@@ -40,6 +42,7 @@ import SpecialSchedule from './pages/special/Schedule'
 import SpecialRotational from './pages/special/Rotational'
 import SpecialReports from './pages/special/Reports'
 import SpecialHistory from './pages/special/History'
+import SpecialExcuses from './pages/special/Excuses'
 
 // Public Routes
 import QRScan from './pages/QRScan'
@@ -89,6 +92,7 @@ function AppRoutes() {
         <Route path="analytics" element={<AdminAnalytics />} />
         <Route path="audit-logs" element={<AdminAuditLogs />} />
         <Route path="settings" element={<AdminSettings />} />
+        <Route path="excuse-requests" element={<AdminExcuseRequests />} />
         <Route path="qr-print/:roomId" element={<AdminQRPrint />} />
       </Route>
       
@@ -108,6 +112,7 @@ function AppRoutes() {
         <Route path="submit" element={<StudentSubmit />} />
         <Route path="rotational" element={<StudentRotational />} />
         <Route path="reports" element={<StudentReports />} />
+        <Route path="excuses" element={<StudentExcuses />} />
         <Route path="history" element={<StudentHistory />} />
       </Route>
       
@@ -126,6 +131,7 @@ function AppRoutes() {
         <Route path="after" element={<SpecialAfter />} />
         <Route path="schedule" element={<SpecialSchedule />} />
         <Route path="rotational" element={<SpecialRotational />} />
+        <Route path="excuses" element={<SpecialExcuses />} />
         <Route path="reports" element={<SpecialReports />} />
         <Route path="history" element={<SpecialHistory />} />
       </Route>

@@ -7,6 +7,7 @@ const TONES = {
   warn: 'text-warn bg-warn-soft',
   bad: 'text-bad bg-bad-soft',
   info: 'text-info bg-info-soft',
+  pink: 'text-pink bg-pink-soft',
 }
 
 const SIZES = {

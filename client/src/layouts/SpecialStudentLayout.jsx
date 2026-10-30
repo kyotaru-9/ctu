@@ -6,6 +6,7 @@ import {
   biCameraFill,
   biClockHistory,
   biExclamation,
+  biFileText,
   biHouse,
 } from '../utils/icons'
 
@@ -21,9 +22,10 @@ import {
 const navItems = [
   { path: 'dashboard', label: 'Home', icon: biHouse },
   { path: 'schedule', label: 'Schedule', icon: biCalendar },
-  { path: 'before', label: 'Submit Before', icon: biArrowCounterclockwise, short: 'Before', primary: true },
-  { path: 'rotational', label: 'Rotational', icon: biCameraFill, primary: true },
-  { path: 'after', label: 'Submit After', icon: biArrowClockwise, short: 'After', primary: true },
+  { path: 'before', label: 'Submit Before', icon: biArrowCounterclockwise, short: 'Before' },
+  { path: 'rotational', label: 'Rotational', icon: biCameraFill },
+  { path: 'after', label: 'Submit After', icon: biArrowClockwise, short: 'After' },
+  { path: 'excuses', label: 'Excuses', icon: biFileText },
   { path: 'reports', label: 'Reports', icon: biExclamation },
   { path: 'history', label: 'History', icon: biClockHistory },
 ]
@@ -35,6 +37,7 @@ export default function SpecialStudentLayout() {
       bottomItems={navItems}
       basePath="/special"
       roleLabel="Special Student"
+      theme="pink"
     />
   )
 }

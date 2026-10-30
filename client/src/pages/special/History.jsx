@@ -231,7 +231,7 @@ export default function SpecialHistory() {
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-medium text-ink">{record.room?.room_code || '—'}</p>
+                            <p className="text-sm font-medium">{record.room?.room_code || '—'}</p>
                             <Badge tone={SUBMISSION_STATUS[recordStatus(record)]?.tone || 'neutral'}>
                               {SUBMISSION_STATUS[recordStatus(record)]?.label || recordStatus(record)}
                             </Badge>
@@ -325,7 +325,7 @@ export default function SpecialHistory() {
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-medium text-ink">{record.area?.name || '—'}</p>
+                            <p className="text-sm font-medium">{record.area?.name || '—'}</p>
                             <Badge tone={ROTATIONAL_STATUS[record.status]?.tone || 'neutral'}>
                               {ROTATIONAL_STATUS[record.status]?.label || record.status}
                             </Badge>

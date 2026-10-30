@@ -15,6 +15,7 @@ const TONES = {
   bad: 'bg-bad-soft text-bad border-bad/20',
   info: 'bg-info-soft text-info border-info/20',
   outline: 'bg-transparent text-ink-muted border-line-strong',
+  pink: 'bg-pink-soft text-pink-ink border-pink/20',
 }
 
 const SIZES = {

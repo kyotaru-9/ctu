@@ -182,6 +182,37 @@ router.post('/submissions/before', upload.single('image'), async (req, res) => {
       return res.status(400).json({ success: false, message: 'Image is required' })
     }
 
+    if (!room_id) {
+      return res.status(400).json({ success: false, message: 'Room ID is required' })
+    }
+
+    // Check for exemption or approved excuse
+    const todayStr = new Date().toISOString().split('T')[0]
+    const { data: exemptions } = await supabaseAdmin
+      .from('exemption_days')
+      .select('*')
+      .eq('exemption_date', todayStr)
+      .eq('is_active', true)
+      .or(`section_id.eq.${req.user.section_id},section_id.is.null`)
+      .or(`room_id.eq.${room_id},room_id.is.null`)
+      .or(`schedule_id.eq.${schedule_id},schedule_id.is.null`)
+
+    const { data: excuses } = await supabaseAdmin
+      .from('excuse_requests')
+      .select('*')
+      .eq('section_id', req.user.section_id)
+      .eq('excuse_date', todayStr)
+      .eq('status', 'approved')
+      .or(`room_id.eq.${room_id},room_id.is.null`)
+      .or(`schedule_id.eq.${schedule_id},schedule_id.is.null`)
+
+    if ((exemptions && exemptions.length > 0) || (excuses && excuses.length > 0)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Submission is exempted for this day. An exemption or approved excuse exists.'
+      })
+    }
+
     // Upload to Supabase Storage
     const fileName = `${req.user.section_id}/${req.user.id}/${Date.now()}-${file.originalname}`
     const { error: uploadError } = await supabaseAdmin.storage.from('room-submissions').upload(fileName, file.buffer, {
@@ -244,6 +275,37 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
 
     if (!file) {
       return res.status(400).json({ success: false, message: 'Image is required' })
+    }
+
+    if (!room_id) {
+      return res.status(400).json({ success: false, message: 'Room ID is required' })
+    }
+
+    // Check for exemption or approved excuse
+    const todayStr = new Date().toISOString().split('T')[0]
+    const { data: exemptions } = await supabaseAdmin
+      .from('exemption_days')
+      .select('*')
+      .eq('exemption_date', todayStr)
+      .eq('is_active', true)
+      .or(`section_id.eq.${req.user.section_id},section_id.is.null`)
+      .or(`room_id.eq.${room_id},room_id.is.null`)
+      .or(`schedule_id.eq.${schedule_id},schedule_id.is.null`)
+
+    const { data: excuses } = await supabaseAdmin
+      .from('excuse_requests')
+      .select('*')
+      .eq('section_id', req.user.section_id)
+      .eq('excuse_date', todayStr)
+      .eq('status', 'approved')
+      .or(`room_id.eq.${room_id},room_id.is.null`)
+      .or(`schedule_id.eq.${schedule_id},schedule_id.is.null`)
+
+    if ((exemptions && exemptions.length > 0) || (excuses && excuses.length > 0)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Submission is exempted for this day. An exemption or approved excuse exists.'
+      })
     }
 
     const fileName = `${req.user.section_id}/${req.user.id}/${Date.now()}-${file.originalname}`
@@ -362,6 +424,14 @@ router.post('/reports', upload.single('image'), async (req, res) => {
 
     if (!file) {
       return res.status(400).json({ success: false, message: 'Image proof is required' })
+    }
+
+    if (!room_id) {
+      return res.status(400).json({ success: false, message: 'Room ID is required' })
+    }
+
+    if (!reason_id) {
+      return res.status(400).json({ success: false, message: 'Reason ID is required' })
     }
 
     const fileName = `reports/${req.user.section_id}/${Date.now()}-${file.originalname}`
@@ -505,6 +575,31 @@ router.post('/rotational/before', upload.single('image'), async (req, res) => {
       return res.status(400).json({ success: false, message: 'Area ID is required' })
     }
 
+    // Check for exemption or approved excuse
+    const todayStr = new Date().toISOString().split('T')[0]
+    const { data: exemptions } = await supabaseAdmin
+      .from('exemption_days')
+      .select('*')
+      .eq('exemption_date', todayStr)
+      .eq('is_active', true)
+      .or(`section_id.eq.${req.user.section_id},section_id.is.null`)
+      .or(`area_id.eq.${area_id},area_id.is.null`)
+
+    const { data: excuses } = await supabaseAdmin
+      .from('excuse_requests')
+      .select('*')
+      .eq('section_id', req.user.section_id)
+      .eq('excuse_date', todayStr)
+      .eq('status', 'approved')
+      .or(`area_id.eq.${area_id},area_id.is.null`)
+
+    if ((exemptions && exemptions.length > 0) || (excuses && excuses.length > 0)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Rotational cleaning is exempted for this day. An exemption or approved excuse exists.'
+      })
+    }
+
     const imageNum = image_number || '1'
 
     // Upload to Supabase Storage
@@ -518,7 +613,6 @@ router.post('/rotational/before', upload.single('image'), async (req, res) => {
     const imageUrl = urlData.publicUrl
 
     // Create or update cleaning record
-    const todayStr = new Date().toISOString().split('T')[0]
     const { data: existing, error: checkError } = await supabaseAdmin
       .from('cleaning_records')
       .select('*')
@@ -595,6 +689,31 @@ router.post('/rotational/after', upload.single('image'), async (req, res) => {
       return res.status(400).json({ success: false, message: 'Area ID is required' })
     }
 
+    // Check for exemption or approved excuse
+    const todayStr = new Date().toISOString().split('T')[0]
+    const { data: exemptions } = await supabaseAdmin
+      .from('exemption_days')
+      .select('*')
+      .eq('exemption_date', todayStr)
+      .eq('is_active', true)
+      .or(`section_id.eq.${req.user.section_id},section_id.is.null`)
+      .or(`area_id.eq.${area_id},area_id.is.null`)
+
+    const { data: excuses } = await supabaseAdmin
+      .from('excuse_requests')
+      .select('*')
+      .eq('section_id', req.user.section_id)
+      .eq('excuse_date', todayStr)
+      .eq('status', 'approved')
+      .or(`area_id.eq.${area_id},area_id.is.null`)
+
+    if ((exemptions && exemptions.length > 0) || (excuses && excuses.length > 0)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Rotational cleaning is exempted for this day. An exemption or approved excuse exists.'
+      })
+    }
+
     const imageNum = image_number || '1'
 
     // Upload to Supabase Storage
@@ -608,7 +727,6 @@ router.post('/rotational/after', upload.single('image'), async (req, res) => {
     const imageUrl = urlData.publicUrl
 
     // Find today's record
-    const todayStr = new Date().toISOString().split('T')[0]
     const { data: existing, error: checkError } = await supabaseAdmin
       .from('cleaning_records')
       .select('*')
@@ -690,6 +808,191 @@ router.get('/rotational/schedule', async (req, res) => {
   } catch (err) {
     console.error('Rotational schedule error:', err)
     res.status(500).json({ success: false, message: 'Failed to load rotational schedule' })
+  }
+})
+
+// Excuse Requests - Student requests excuse with proof
+const EXCUSE_REQUEST_SELECT = '*, section:sections(*), room:rooms(*), area:areas(*), schedule:schedules(*)'
+
+router.get('/excuse-requests', async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('excuse_requests')
+      .select(EXCUSE_REQUEST_SELECT)
+      .eq('section_id', req.user.section_id)
+      .order('excuse_date', { ascending: false })
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    console.error('Excuse requests error:', err)
+    res.status(500).json({ success: false, message: 'Failed to load excuse requests' })
+  }
+})
+
+router.post('/excuse-requests', upload.single('image'), async (req, res) => {
+  try {
+    const { excuse_date, excuse_type, schedule_id, area_id, reason } = req.body
+    const file = req.file
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Image proof is required' })
+    }
+
+    if (!excuse_date || !excuse_type) {
+      return res.status(400).json({
+        success: false,
+        message: 'Excuse date and type are required'
+      })
+    }
+
+    if (!reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reason is required'
+      })
+    }
+
+    if (excuse_type === 'room_schedule' && !schedule_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Schedule is required for room schedule excuses'
+      })
+    }
+
+    if (excuse_type === 'area_assignment' && !area_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Area assignment is required for area assignment excuses'
+      })
+    }
+
+    // If schedule_id is provided, get the room_id from the schedule
+    let room_id = null
+    if (schedule_id) {
+      const { data: schedule } = await supabaseAdmin
+        .from('schedules')
+        .select('room_id')
+        .eq('id', schedule_id)
+        .single()
+      if (schedule) room_id = schedule.room_id
+    }
+
+    // If area_id is provided, get the actual area_id from the area_assignment
+    let actual_area_id = null
+    if (area_id) {
+      const { data: assignment } = await supabaseAdmin
+        .from('area_assignments')
+        .select('area_id')
+        .eq('id', area_id)
+        .single()
+      if (assignment) actual_area_id = assignment.area_id
+    }
+
+    // Upload to Supabase Storage
+    const fileName = `excuse-proofs/${req.user.section_id}/${Date.now()}-${file.originalname}`
+    const { error: uploadError } = await supabaseAdmin
+      .storage
+      .from('excuse-proofs')
+      .upload(fileName, file.buffer, {
+        contentType: file.mimetype
+      })
+    if (uploadError) throw uploadError
+
+    const { data: urlData } = supabaseAdmin.storage.from('excuse-proofs').getPublicUrl(fileName)
+    const imageUrl = urlData.publicUrl
+
+    // Create excuse request with pending status
+    const { data, error } = await supabaseAdmin
+      .from('excuse_requests')
+      .insert({
+        section_id: req.user.section_id,
+        requested_by: req.user.id,
+        excuse_date,
+        excuse_type,
+        room_id: room_id || null,
+        area_id: actual_area_id || null,
+        schedule_id: schedule_id || null,
+        reason,
+        proof_image_url: imageUrl,
+        status: 'pending'
+      })
+      .select(EXCUSE_REQUEST_SELECT)
+      .single()
+
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch (err) {
+    console.error('Excuse request error:', err)
+    res.status(500).json({ success: false, message: err.message || 'Failed to submit excuse request' })
+  }
+})
+
+// Check if today has an exemption
+router.get('/check-exemption', async (req, res) => {
+  try {
+    const todayStr = new Date().toISOString().split('T')[0]
+    const { room_id, area_id, schedule_id } = req.query
+
+    // Check for exemption days
+    let exemptionQuery = supabaseAdmin
+      .from('exemption_days')
+      .select('*')
+      .eq('exemption_date', todayStr)
+      .eq('is_active', true)
+
+    // Filter by section
+    exemptionQuery = exemptionQuery.or(`section_id.eq.${req.user.section_id},section_id.is.null`)
+
+    // Filter by specific type if provided
+    if (room_id) {
+      exemptionQuery = exemptionQuery.or(`room_id.eq.${room_id},room_id.is.null`)
+    }
+    if (area_id) {
+      exemptionQuery = exemptionQuery.or(`area_id.eq.${area_id},area_id.is.null`)
+    }
+    if (schedule_id) {
+      exemptionQuery = exemptionQuery.or(`schedule_id.eq.${schedule_id},schedule_id.is.null`)
+    }
+
+    const { data: exemptions, error: exemptionError } = await exemptionQuery
+
+    if (exemptionError) throw exemptionError
+
+    // Check for approved excuse requests
+    let excuseQuery = supabaseAdmin
+      .from('excuse_requests')
+      .select('*')
+      .eq('section_id', req.user.section_id)
+      .eq('excuse_date', todayStr)
+      .eq('status', 'approved')
+
+    if (room_id) {
+      excuseQuery = excuseQuery.or(`room_id.eq.${room_id},room_id.is.null`)
+    }
+    if (area_id) {
+      excuseQuery = excuseQuery.or(`area_id.eq.${area_id},area_id.is.null`)
+    }
+    if (schedule_id) {
+      excuseQuery = excuseQuery.or(`schedule_id.eq.${schedule_id},schedule_id.is.null`)
+    }
+
+    const { data: excuses, error: excuseError } = await excuseQuery
+
+    if (excuseError) throw excuseError
+
+    const hasExemption = (exemptions && exemptions.length > 0) || (excuses && excuses.length > 0)
+
+    res.json({
+      success: true,
+      data: {
+        has_exemption: hasExemption,
+        exemptions: exemptions || [],
+        excuses: excuses || []
+      }
+    })
+  } catch (err) {
+    console.error('Check exemption error:', err)
+    res.status(500).json({ success: false, message: 'Failed to check exemption status' })
   }
 })
 

@@ -27,6 +27,31 @@
   --color-accent-soft: #eef2fd;
   --color-accent-ink: #1e3f96;
 
+  /* --- Pink theme for Special Student ------------------------------------ */
+  --color-pink: #ec4899;
+  --color-pink-hover: #db2777;
+  --color-pink-soft: #fce7f3;
+  --color-pink-ink: #be185d;
+  --color-pink-light: #fbcfe8;
+  --color-pink-bg: #fdf2f8;
+  --color-pink-200: #fbcfe8;
+  --color-pink-300: #f9a8d4;
+  --color-pink-500: #ec4899;
+  --color-pink-600: #db2777;
+  --color-pink-700: #be185d;
+  --color-pink-800: #9d174d;
+  --color-pink-900: #831843;
+
+  /* Pink theme status colors - replacing all semantic colors with pink shades */
+  --color-pink-ok: #10b981;
+  --color-pink-ok-soft: #d1fae5;
+  --color-pink-warn: #f59e0b;
+  --color-pink-warn-soft: #fef3c7;
+  --color-pink-bad: #ef4444;
+  --color-pink-bad-soft: #fee2e2;
+  --color-pink-info: #8b5cf6;
+  --color-pink-info-soft: #ede9fe;
+
   /* --- CTU institutional palette -----------------------------------------
      Sampled from the campus mark. Used only for the login backdrop wash;
      the app chrome stays on the single accent above. */
@@ -71,6 +96,53 @@
 
   /* --- Motion ------------------------------------------------------------ */
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Pink utility classes */
+.text-pink {
+  color: var(--color-pink);
+}
+.text-pink-500 {
+  color: var(--color-pink-500);
+}
+.text-pink-600 {
+  color: var(--color-pink-600);
+}
+.text-pink-700 {
+  color: var(--color-pink-700);
+}
+.text-pink-800 {
+  color: var(--color-pink-800);
+}
+.text-pink-900 {
+  color: var(--color-pink-900);
+}
+.bg-pink-50\/30 {
+  background-color: color-mix(in srgb, var(--color-pink-bg) 30%, transparent);
+}
+.bg-pink-50\/50 {
+  background-color: color-mix(in srgb, var(--color-pink-bg) 50%, transparent);
+}
+.bg-pink-100\/50 {
+  background-color: color-mix(in srgb, var(--color-pink-soft) 50%, transparent);
+}
+.bg-pink-soft {
+  background-color: var(--color-pink-soft);
+}
+.bg-white {
+  background-color: #fff;
+}
+.border-pink-200 {
+  border-color: var(--color-pink-200);
+}
+.border-pink-300 {
+  border-color: var(--color-pink-300);
+}
+.hover\:border-pink-300:hover {
+  border-color: var(--color-pink-300);
+}
+.hover\:bg-pink-100\/50:hover {
+  background-color: color-mix(in srgb, var(--color-pink-soft) 50%, transparent);
 }
 
 /* ==========================================================================
@@ -326,6 +398,119 @@
     background-color: var(--color-canvas);
   }
 
+  /* Pink theme variant */
+  .app-shell[data-theme='pink'] {
+    background-color: var(--color-pink-bg);
+  }
+
+  .app-shell[data-theme='pink'] .app-sidebar {
+    background-color: #fff;
+    border-inline-end: 1px solid var(--color-pink-light);
+  }
+
+  .app-shell[data-theme='pink'] .app-nav-link {
+    color: var(--color-ink-muted);
+  }
+
+  .app-shell[data-theme='pink'] .app-nav-link:hover {
+    background-color: var(--color-pink-soft);
+    color: var(--color-pink-ink);
+  }
+
+  .app-shell[data-theme='pink'] .app-nav-link[aria-current='page'] {
+    background-color: var(--color-pink-soft);
+    color: var(--color-pink-ink);
+    font-weight: 600;
+  }
+
+  .app-shell[data-theme='pink'] .bottom-nav {
+    background-color: #fff;
+    border-top: 1px solid var(--color-pink-light);
+  }
+
+  .app-shell[data-theme='pink'] .bottom-nav-link[aria-current='page'] {
+    color: var(--color-pink-ink);
+  }
+
+  .app-shell[data-theme='pink'] .bottom-nav-link[aria-current='page'] .bottom-nav-icon {
+    background-color: var(--color-pink-soft);
+    color: var(--color-pink);
+  }
+
+  .app-shell[data-theme='pink'] .bottom-nav-link[aria-current='page'] .bottom-nav-icon::after {
+    background-color: var(--color-pink);
+  }
+
+  .app-shell[data-theme='pink'] .bottom-nav-link-primary {
+    color: var(--color-pink-ink);
+  }
+
+  .app-shell[data-theme='pink'] .bottom-nav-link-primary .bottom-nav-icon {
+    background-color: var(--color-pink);
+    color: #fff;
+    box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--color-pink) 60%, transparent);
+  }
+
+  .app-shell[data-theme='pink'] .bottom-nav-link-primary:hover .bottom-nav-icon {
+    background-color: var(--color-pink-hover);
+  }
+
+  .app-shell[data-theme='pink'] .bottom-nav-link-primary[aria-current='page'] .bottom-nav-icon {
+    background-color: var(--color-pink);
+  }
+
+  .app-shell[data-theme='pink'] .bottom-nav-link-primary[aria-current='page'] .bottom-nav-icon::after {
+    background-color: var(--color-pink);
+  }
+
+  /* Pink theme: Page headers inside pink theme */
+  .app-shell[data-theme='pink'] h1 {
+    color: var(--color-pink-900);
+  }
+
+  .app-shell[data-theme='pink'] .app-main header {
+    background-color: color-mix(in srgb, var(--color-pink-bg) 85%, #fff);
+  }
+
+  /* Override all semantic colors with pink-themed shades in pink theme */
+  .app-shell[data-theme='pink'] {
+    --color-ok: var(--color-pink-ok);
+    --color-ok-soft: var(--color-pink-ok-soft);
+    --color-warn: var(--color-pink-warn);
+    --color-warn-soft: var(--color-pink-warn-soft);
+    --color-bad: var(--color-pink-bad);
+    --color-bad-soft: var(--color-pink-bad-soft);
+    --color-info: var(--color-pink-info);
+    --color-info-soft: var(--color-pink-info-soft);
+  }
+
+  /* Override accent color with pink in pink theme */
+  .app-shell[data-theme='pink'] {
+    --color-accent: var(--color-pink);
+    --color-accent-hover: var(--color-pink-hover);
+    --color-accent-soft: var(--color-pink-soft);
+    --color-accent-ink: var(--color-pink-ink);
+  }
+
+  /* Override line colors with pink shades in pink theme */
+  .app-shell[data-theme='pink'] {
+    --color-line: var(--color-pink-200);
+    --color-line-strong: var(--color-pink-300);
+  }
+
+  /* Override surface colors with pink-tinted shades in pink theme */
+  .app-shell[data-theme='pink'] {
+    --color-surface-sunken: var(--color-pink-bg);
+    --color-skeleton: var(--color-pink-200);
+  }
+
+  /* Override ink colors with pink-tinted shades in pink theme */
+  .app-shell[data-theme='pink'] {
+    --color-ink: var(--color-pink-900);
+    --color-ink-muted: var(--color-pink-700);
+    --color-ink-subtle: var(--color-pink-600);
+  }
+
   /* Desktop sidebar. Hidden entirely below `lg`, where the drawer takes over. */
   .app-sidebar {
     position: fixed;
@@ -379,7 +564,7 @@
      content, and clear the home-indicator inset on notched devices. */
   @media (width < 64rem) {
     .app-content[data-bottom-nav='true'] {
-      padding-block-end: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+      padding-block-end: calc(6.5rem + env(safe-area-inset-bottom, 0px));
     }
   }
 

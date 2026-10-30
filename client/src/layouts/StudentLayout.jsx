@@ -4,6 +4,7 @@ import {
   biCameraFill,
   biClockHistory,
   biExclamation,
+  biFileText,
   biHouse,
   biQRCode,
 } from '../utils/icons'
@@ -17,8 +18,9 @@ import {
 const navItems = [
   { path: 'dashboard', label: 'Home', icon: biHouse },
   { path: 'schedule', label: 'Schedule', icon: biCalendar },
-  { path: 'scan', label: 'Scan QR', icon: biQRCode, primary: true },
-  { path: 'rotational', label: 'Rotational', icon: biCameraFill, primary: true },
+  { path: 'scan', label: 'Scan QR', icon: biQRCode },
+  { path: 'rotational', label: 'Rotational', icon: biCameraFill },
+  { path: 'excuses', label: 'Excuses', icon: biFileText },
   { path: 'reports', label: 'Reports', icon: biExclamation },
   { path: 'history', label: 'History', icon: biClockHistory },
 ]

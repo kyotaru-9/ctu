@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { submissionService } from '../../services/submissionService'
+import { rotationalService } from '../../services/rotationalService'
 import {
   biCalendar,
   biCamera,
@@ -30,6 +31,7 @@ export default function StudentDashboard() {
   const { user } = useAuth()
   const [todaysSchedule, setTodaysSchedule] = useState([])
   const [submissionStatus, setSubmissionStatus] = useState({ before: null, after: null })
+  const [rotationalData, setRotationalData] = useState(null)
   const [compliance, setCompliance] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -39,16 +41,23 @@ export default function StudentDashboard() {
 
     async function fetchDashboardData() {
       try {
-        const response = await submissionService.getDashboardData()
+        const [dashboardResponse, rotationalResponse] = await Promise.all([
+          submissionService.getDashboardData(),
+          rotationalService.getToday()
+        ])
         if (cancelled) return
 
-        if (response.success) {
-          const { todaysSchedule, submissionStatus: status, compliance: comp } = response.data
+        if (dashboardResponse.success) {
+          const { todaysSchedule, submissionStatus: status, compliance: comp } = dashboardResponse.data
           setTodaysSchedule(todaysSchedule || [])
           setSubmissionStatus(status || { before: null, after: null })
           setCompliance(comp || 0)
         } else {
-          setError(response.message || 'Failed to load dashboard')
+          setError(dashboardResponse.message || 'Failed to load dashboard')
+        }
+
+        if (rotationalResponse.success) {
+          setRotationalData(rotationalResponse.data)
         }
       } catch (err) {
         if (!cancelled) setError(err.response?.data?.message || 'Failed to load dashboard')
@@ -82,8 +91,8 @@ export default function StudentDashboard() {
               <Skeleton className="h-3 w-28" />
             </CardHeader>
             <CardBody>
-              <div className="grid grid-cols-3 gap-4">
-                {Array.from({ length: 3 }).map((_, i) => (
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
                   <div key={i} className="text-center">
                     <Skeleton className="mx-auto h-8 w-12" />
                     <Skeleton className="mx-auto mt-2 h-2 w-20" />
@@ -160,9 +169,8 @@ export default function StudentDashboard() {
           <CardHeader>
             <CardTitle>Compliance</CardTitle>
           </CardHeader>
-          <CardBody className="flex flex-col items-center justify-center gap-3 py-6">
+          <CardBody className="flex flex-col items-center justify-center py-6">
             <ComplianceRing value={compliance} size="sm" />
-            <p className="text-sm font-medium text-ink">{compliance}%</p>
           </CardBody>
         </Card>
 
@@ -171,18 +179,22 @@ export default function StudentDashboard() {
             <CardTitle>Today's stats</CardTitle>
           </CardHeader>
           <CardBody>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div className="text-center">
                 <p className="text-2xl font-semibold text-ink">{todaysSchedule.length}</p>
-                <p className="mt-1 text-xs text-ink-muted">Today's classes</p>
+                <p className="mt-1 text-xs text-ink-muted">Room classes</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-semibold text-ink">{submissionStatus.before ? 1 : 0}</p>
-                <p className="mt-1 text-xs text-ink-muted">Before submitted</p>
+                <p className="mt-1 text-xs text-ink-muted">Room submitted</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-semibold text-ink">{submissionStatus.after ? 0 : 1}</p>
-                <p className="mt-1 text-xs text-ink-muted">After pending</p>
+                <p className="text-2xl font-semibold text-ink">{rotationalData?.assignment ? 1 : 0}</p>
+                <p className="mt-1 text-xs text-ink-muted">Rotational</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-semibold text-ink">{rotationalData?.existingRecord?.status === 'completed' ? 1 : 0}</p>
+                <p className="mt-1 text-xs text-ink-muted">Rotational done</p>
               </div>
             </div>
           </CardBody>
@@ -245,33 +257,73 @@ export default function StudentDashboard() {
             <CardTitle>Submissions</CardTitle>
           </CardHeader>
           <CardBody>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                {
-                  to: '/student/submit',
-                  label: 'Before',
-                  icon: biCamera,
-                  done: submissionStatus.before,
-                },
-                {
-                  to: '/student/submit',
-                  label: 'After',
-                  icon: biCamera,
-                  done: submissionStatus.after,
-                },
-              ].map(({ to, label, icon, done }) => (
+            {/* Room Submissions */}
+            <div className="mb-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">Room</p>
+              {todaysSchedule.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3">
+                  {[
+                    {
+                      to: '/student/submit',
+                      label: 'Before',
+                      icon: biCamera,
+                      done: submissionStatus.before,
+                    },
+                    {
+                      to: '/student/submit',
+                      label: 'After',
+                      icon: biCamera,
+                      done: submissionStatus.after,
+                    },
+                  ].map(({ to, label, icon, done }) => (
+                    <Link
+                      key={label}
+                      to={to}
+                      className="flex items-center gap-3 rounded-md border border-line bg-surface-sunken p-4 transition-colors hover:border-line-strong hover:bg-line/40"
+                    >
+                      <IconTile icon={icon} tone={done ? 'ok' : 'neutral'} size="sm" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-ink">{label}</p>
+                        <p className="mt-0.5 text-xs text-ink-muted">Room inspection</p>
+                      </div>
+                      <Badge tone={done ? 'ok' : 'warn'}>{done ? 'Completed' : 'Pending'}</Badge>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md border border-line bg-surface-sunken p-4 text-center">
+                  <p className="text-sm text-ink-muted">No classes today</p>
+                </div>
+              )}
+            </div>
+
+            {/* Divider */}
+            <div className="mb-4 border-t border-line" />
+
+            {/* Rotational Submissions */}
+            <div>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">Rotational</p>
+              {rotationalData?.assignment ? (
                 <Link
-                  key={label}
-                  to={to}
-                  className="rounded-md border border-line bg-surface-sunken p-4 text-center transition-colors hover:border-line-strong hover:bg-line/40"
+                  to="/student/rotational"
+                  className="flex items-center gap-3 rounded-md border border-line bg-surface-sunken p-4 transition-colors hover:border-line-strong hover:bg-line/40"
                 >
-                  <IconTile icon={icon} tone={done ? 'ok' : 'neutral'} size="sm" className="mx-auto mb-3" />
-                  <p className="text-sm font-medium text-ink">{label}</p>
-                  <p className="mt-1.5">
-                    <Badge tone={done ? 'ok' : 'warn'}>{done ? 'Completed' : 'Pending'}</Badge>
-                  </p>
+                  <IconTile icon={biClockHistory} tone={rotationalData?.existingRecord?.status === 'completed' ? 'ok' : 'neutral'} size="sm" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-ink">Today's Cleaning</p>
+                    <p className="mt-0.5 text-xs text-ink-muted">
+                      {rotationalData?.assignment?.area?.name}
+                    </p>
+                  </div>
+                  <Badge tone={rotationalData?.existingRecord?.status === 'completed' ? 'ok' : 'warn'}>
+                    {rotationalData?.existingRecord?.status === 'completed' ? 'Completed' : 'Pending'}
+                  </Badge>
                 </Link>
-              ))}
+              ) : (
+                <div className="rounded-md border border-line bg-surface-sunken p-4 text-center">
+                  <p className="text-sm text-ink-muted">No assignment today</p>
+                </div>
+              )}
             </div>
           </CardBody>
         </Card>
