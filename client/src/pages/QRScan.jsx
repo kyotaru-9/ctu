@@ -57,7 +57,7 @@ export default function QRScan() {
   }, [qrToken])
 
   function handleLogin() {
-    navigate('/login', { state: { from: { pathname: `/scan/${qrToken}` } } })
+    navigate('/', { state: { from: { pathname: `/scan/${qrToken}` } } })
   }
 
   function handleProceed() {

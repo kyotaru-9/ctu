@@ -52,10 +52,10 @@ function ProtectedRoute({ children, allowedRoles }) {
 
   if (loading) return <FullPageLoader label="Checking your session…" />
 
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/" replace />
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/login" replace />
+    return <Navigate to="/" replace />
   }
 
   return children
@@ -65,7 +65,8 @@ function AppRoutes() {
   return (
     <Routes>
       {/* Public Routes */}
-      <Route path="/login" element={<Login />} />
+      <Route path="/" element={<Login />} />
+      <Route path="/login" element={<Navigate to="/" replace />} />
       <Route path="/account-deactivated" element={<AccountDeactivated />} />
       <Route path="/scan/:qrToken" element={<QRScan />} />
       
@@ -136,9 +137,8 @@ function AppRoutes() {
         <Route path="history" element={<SpecialHistory />} />
       </Route>
       
-      {/* Redirect root to login */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      {/* Catch-all goes to the login page at root */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

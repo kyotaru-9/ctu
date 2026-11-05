@@ -146,7 +146,7 @@ export default function AccountDeactivated() {
             </p>
           </div>
 
-          <Button variant="secondary" size="lg" block className="mt-6" onClick={() => navigate('/login')}>
+          <Button variant="secondary" size="lg" block className="mt-6" onClick={() => navigate('/')}>
             Back to sign in
           </Button>
         </CardBody>

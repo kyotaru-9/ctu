@@ -192,7 +192,7 @@ api.interceptors.response.use(
         processQueue(err, null)
         authStorage.clear()
         getCache.clear()
-        window.location.href = '/login'
+        window.location.href = '/'
         return Promise.reject(err)
       } finally {
         isRefreshing = false

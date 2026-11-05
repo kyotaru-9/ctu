@@ -156,7 +156,7 @@ export default function AppShell({ items, basePath, roleLabel, bottomItems, grou
 
   async function handleSignOut() {
     await logout()
-    navigate('/login', { replace: true })
+    navigate('/', { replace: true })
   }
 
   return (
