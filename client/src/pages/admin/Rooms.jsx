@@ -98,9 +98,11 @@ export default function AdminRooms() {
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [formData, setFormData] = useState(BLANK_FORM)
   const [showBatchUpload, setShowBatchUpload] = useState(false)
   const [togglingId, setTogglingId] = useState(null)
+  const [deactivateTarget, setDeactivateTarget] = useState(null)
 
   const fetchRooms = useCallback(async () => {
     setLoading(true)
@@ -155,11 +157,18 @@ export default function AdminRooms() {
 
   function update(field, value) {
     setFormData((previous) => ({ ...previous, [field]: value }))
+    setFieldErrors((previous) => {
+      if (!previous[field]) return previous
+      const next = { ...previous }
+      delete next[field]
+      return next
+    })
   }
 
   function handleOpenAdd() {
     setEditingRoom(null)
     setFormData(BLANK_FORM)
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
@@ -171,12 +180,23 @@ export default function AdminRooms() {
       floor: room.floor || '',
       description: room.description || '',
     })
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
 
+  function validate() {
+    const errors = {}
+    if (!formData.room_code.trim()) {
+      errors.room_code = 'Room code is required.'
+    }
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
+    if (!validate()) return
     setSubmitting(true)
     setError('')
 
@@ -208,12 +228,11 @@ export default function AdminRooms() {
    * surfaced rather than swallowed, since a silently unchanged row looks like a
    * dead button.
    */
-  async function handleToggleStatus(room) {
+  async function applyStatus(room, nextActive) {
     setTogglingId(room.id)
     setError('')
 
     try {
-      const nextActive = !room.is_active
       const response = await roomService.update(room.id, { is_active: nextActive })
 
       if (!response.success) {
@@ -225,11 +244,32 @@ export default function AdminRooms() {
         current.map((item) => (item.id === room.id ? { ...item, ...response.data } : item))
       )
       await fetchRooms()
+      return true
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to update the room')
+      return false
     } finally {
       setTogglingId(null)
     }
+  }
+
+  /**
+   * Deactivating asks first, the same gate the delete dialog uses: both end
+   * at is_active = false, and a deactivated room's QR code stops working.
+   * Enabling goes straight through.
+   */
+  function handleToggleStatus(room) {
+    if (room.is_active) {
+      setDeactivateTarget(room)
+      return
+    }
+    applyStatus(room, true)
+  }
+
+  async function handleConfirmDeactivate() {
+    if (!deactivateTarget) return
+    const ok = await applyStatus(deactivateTarget, false)
+    if (ok) setDeactivateTarget(null)
   }
 
   async function handleRegenerateQR(room) {
@@ -426,6 +466,7 @@ export default function AdminRooms() {
               required
               value={formData.room_code}
               onChange={(event) => update('room_code', event.target.value)}
+              error={fieldErrors.room_code}
               disabled={Boolean(editingRoom)}
               hint={editingRoom ? 'Room code cannot be changed' : undefined}
             />
@@ -449,6 +490,22 @@ export default function AdminRooms() {
         open={showBatchUpload}
         onClose={() => setShowBatchUpload(false)}
         onImported={fetchRooms}
+      />
+
+      {/* Deactivate confirmation */}
+      <ConfirmDialog
+        open={Boolean(deactivateTarget)}
+        onClose={() => setDeactivateTarget(null)}
+        onConfirm={handleConfirmDeactivate}
+        loading={Boolean(togglingId)}
+        title="Deactivate room"
+        description={
+          deactivateTarget
+            ? `Deactivate room ${deactivateTarget.room_code}? Its QR code stops working and students can no longer scan it. Its history is kept.`
+            : ''
+        }
+        confirmLabel="Deactivate"
+        tone="bad"
       />
 
       <ConfirmDialog

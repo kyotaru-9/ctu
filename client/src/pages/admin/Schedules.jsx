@@ -111,7 +111,10 @@ export default function AdminSchedules() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deactivateTarget, setDeactivateTarget] = useState(null)
+  const [deactivating, setDeactivating] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [formData, setFormData] = useState(BLANK_FORM)
 
   const fetchSchedules = useCallback(async () => {
@@ -157,6 +160,12 @@ export default function AdminSchedules() {
 
   function update(field, value) {
     setFormData((previous) => ({ ...previous, [field]: value }))
+    setFieldErrors((previous) => {
+      if (!previous[field]) return previous
+      const next = { ...previous }
+      delete next[field]
+      return next
+    })
   }
 
   function toFormData(schedule) {
@@ -205,6 +214,7 @@ export default function AdminSchedules() {
   function handleOpenAdd() {
     setEditingSchedule(null)
     setFormData(BLANK_FORM)
+    setFieldErrors({})
     setError('')
     setEditLoading(false)
     setShowForm(true)
@@ -213,6 +223,7 @@ export default function AdminSchedules() {
   async function handleOpenEdit(schedule) {
     setEditingSchedule(schedule)
     setFormData(BLANK_FORM)
+    setFieldErrors({})
     setError('')
     setEditLoading(true)
     setShowForm(true)
@@ -235,9 +246,27 @@ export default function AdminSchedules() {
     setEditLoading(false)
   }
 
+  function validate() {
+    const errors = {}
+
+    if (!formData.section_id) errors.section_id = 'Select a section.'
+    if (!formData.room_id) errors.room_id = 'Select a room.'
+    if (!formData.subject_name.trim()) errors.subject_name = 'Subject name is required.'
+    if (formData.day_of_week === '') errors.day_of_week = 'Select a day.'
+    if (!formData.start_time) errors.start_time = 'Start time is required.'
+    if (!formData.end_time) errors.end_time = 'End time is required.'
+    if (formData.start_time && formData.end_time && formData.end_time <= formData.start_time) {
+      errors.end_time = 'End time must be after the start time.'
+    }
+
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
     if (editLoading) return
+    if (!validate()) return
     setSubmitting(true)
     setError('')
 
@@ -265,12 +294,37 @@ export default function AdminSchedules() {
     }
   }
 
-  async function handleToggleStatus(schedule) {
+  /**
+   * Deactivating asks first, the same gate the delete dialog uses: both take
+   * the class off the timetable. Enabling goes straight through.
+   */
+  function handleToggleStatus(schedule) {
+    if (schedule.is_active) {
+      setDeactivateTarget(schedule)
+      return
+    }
+    applyStatus(schedule, true)
+  }
+
+  async function applyStatus(schedule, nextActive) {
     try {
-      const response = await scheduleService.update(schedule.id, { is_active: !schedule.is_active })
+      const response = await scheduleService.update(schedule.id, { is_active: nextActive })
       if (response.success) await fetchSchedules()
+      return response.success
     } catch {
       // Non-critical.
+      return false
+    }
+  }
+
+  async function handleConfirmDeactivate() {
+    if (!deactivateTarget) return
+    setDeactivating(true)
+    try {
+      const ok = await applyStatus(deactivateTarget, false)
+      if (ok) setDeactivateTarget(null)
+    } finally {
+      setDeactivating(false)
     }
   }
 
@@ -527,6 +581,7 @@ export default function AdminSchedules() {
                   required
                   value={formData.section_id}
                   onChange={(event) => update('section_id', event.target.value)}
+                  error={fieldErrors.section_id}
                   placeholder="Select a section"
                 >
                   {sections.map((section) => (
@@ -541,6 +596,7 @@ export default function AdminSchedules() {
                   required
                   value={formData.room_id}
                   onChange={(event) => update('room_id', event.target.value)}
+                  error={fieldErrors.room_id}
                   placeholder="Select a room"
                 >
                   {rooms.map((room) => (
@@ -555,6 +611,7 @@ export default function AdminSchedules() {
                   required
                   value={formData.subject_name}
                   onChange={(event) => update('subject_name', event.target.value)}
+                  error={fieldErrors.subject_name}
                 />
                 <Select
                   label="Instructor"
@@ -576,6 +633,7 @@ export default function AdminSchedules() {
                   required
                   value={formData.day_of_week}
                   onChange={(event) => update('day_of_week', event.target.value)}
+                  error={fieldErrors.day_of_week}
                   placeholder="Select a day"
                   options={DAY_NAMES_LIST.map((day, index) => ({ value: String(index), label: day }))}
                 />
@@ -585,6 +643,7 @@ export default function AdminSchedules() {
                   required
                   value={formData.start_time}
                   onChange={(event) => update('start_time', event.target.value)}
+                  error={fieldErrors.start_time}
                 />
                 <Input
                   label="End time"
@@ -592,12 +651,30 @@ export default function AdminSchedules() {
                   required
                   value={formData.end_time}
                   onChange={(event) => update('end_time', event.target.value)}
+                  error={fieldErrors.end_time}
                 />
               </div>
             </>
           )}
         </form>
       </Modal>
+
+      {/* Deactivate confirmation — the toggle's off-switch gets the same gate
+          as the delete dialog. */}
+      <ConfirmDialog
+        open={Boolean(deactivateTarget)}
+        onClose={() => setDeactivateTarget(null)}
+        onConfirm={handleConfirmDeactivate}
+        loading={deactivating}
+        title="Deactivate schedule"
+        description={
+          deactivateTarget
+            ? `Deactivate the ${deactivateTarget.subject_name} schedule for ${sectionLabel(deactivateTarget.section)}? It comes off the timetable until reactivated; recorded history is kept.`
+            : ''
+        }
+        confirmLabel="Deactivate"
+        tone="bad"
+      />
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}

@@ -4,7 +4,7 @@
 -- Create storage buckets
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES
-    ('room-submissions', 'room-submissions', false, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp']),
+    ('room-submissions', 'room-submissions', true, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp']),
     ('report-proofs', 'report-proofs', false, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp']),
     ('profile-images', 'profile-images', false, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp'])
 ON CONFLICT (id) DO NOTHING;

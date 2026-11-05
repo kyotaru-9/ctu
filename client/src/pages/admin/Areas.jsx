@@ -50,7 +50,9 @@ export default function AdminAreas() {
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [togglingId, setTogglingId] = useState(null)
+  const [deactivateTarget, setDeactivateTarget] = useState(null)
   const [formData, setFormData] = useState(BLANK_FORM)
 
   const fetchAreas = useCallback(async () => {
@@ -86,11 +88,18 @@ export default function AdminAreas() {
 
   function update(field, value) {
     setFormData((previous) => ({ ...previous, [field]: value }))
+    setFieldErrors((previous) => {
+      if (!previous[field]) return previous
+      const next = { ...previous }
+      delete next[field]
+      return next
+    })
   }
 
   function handleOpenAdd() {
     setEditingArea(null)
     setFormData(BLANK_FORM)
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
@@ -102,12 +111,23 @@ export default function AdminAreas() {
       floor: area.floor || '',
       description: area.description || '',
     })
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
 
+  function validate() {
+    const errors = {}
+    if (!formData.name.trim()) {
+      errors.name = 'Area name is required.'
+    }
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
+    if (!validate()) return
     setSubmitting(true)
     setError('')
 
@@ -155,8 +175,22 @@ export default function AdminAreas() {
     }
   }
 
+  /**
+   * Deactivating asks first, matching the delete dialog: both actions end at
+   * is_active = false. Enabling goes straight through.
+   */
   function handleToggleStatus(area) {
-    applyStatus(area, !area.is_active)
+    if (area.is_active) {
+      setDeactivateTarget(area)
+      return
+    }
+    applyStatus(area, true)
+  }
+
+  async function handleConfirmDeactivate() {
+    if (!deactivateTarget) return
+    const ok = await applyStatus(deactivateTarget, false)
+    if (ok) setDeactivateTarget(null)
   }
 
   function openDeleteDialog(area) {
@@ -325,6 +359,7 @@ export default function AdminAreas() {
               required
               value={formData.name}
               onChange={(event) => update('name', event.target.value)}
+              error={fieldErrors.name}
             />
             <Input
               label="Floor"
@@ -341,14 +376,30 @@ export default function AdminAreas() {
         </form>
       </Modal>
 
+      {/* Deactivate confirmation */}
+      <ConfirmDialog
+        open={Boolean(deactivateTarget)}
+        onClose={() => setDeactivateTarget(null)}
+        onConfirm={handleConfirmDeactivate}
+        loading={Boolean(togglingId)}
+        title="Deactivate area"
+        description={
+          deactivateTarget
+            ? `Deactivate ${deactivateTarget.name}? It will be hidden from assignment pickers until reactivated.`
+            : ''
+        }
+        confirmLabel="Deactivate"
+        tone="bad"
+      />
+
       {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
         title="Delete area"
-        message={`Are you sure you want to delete ${deleteTarget?.name}? This action cannot be undone.`}
+        description={`Are you sure you want to delete ${deleteTarget?.name}? This action cannot be undone.`}
         confirmLabel="Delete"
         tone="bad"
-        onCancel={closeDeleteDialog}
+        onClose={closeDeleteDialog}
         onConfirm={handleDelete}
         loading={deleting}
       />

@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sectionService } from '../../services/sectionService'
 import SectionsBatchUploadModal from '../../features/sections/SectionsBatchUploadModal'
+import AuditLogCalendar from '../../features/audit/AuditLogCalendar'
+import { formatDate } from '../../lib/format'
+import { biCalendar } from '../../utils/icons'
 import {
   biArrowRepeat,
   biCloudUpload,
+  biEyeFill,
   biPencil,
   biPlus,
   biToggleOff,
@@ -16,10 +20,16 @@ import {
   Badge,
   BentoGrid,
   Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
   ConfirmDialog,
   DetailList,
   Input,
+  LoadingBlock,
   Modal,
+  OCCUPATION_STATUS,
   PageHeader,
   Progress,
   RowActions,
@@ -216,6 +226,7 @@ export default function AdminSections() {
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [credentials, setCredentials] = useState(null)
   const [showBatchUpload, setShowBatchUpload] = useState(false)
   const [togglingId, setTogglingId] = useState(null)
@@ -225,6 +236,16 @@ export default function AdminSections() {
   const [regenerateTarget, setRegenerateTarget] = useState(null)
   const [regenerating, setRegenerating] = useState(false)
   const [regenerated, setRegenerated] = useState(null)
+  const [viewTarget, setViewTarget] = useState(null)
+  const [viewStats, setViewStats] = useState(null)
+  const [viewLoading, setViewLoading] = useState(false)
+  const [viewError, setViewError] = useState('')
+  const [statsDate, setStatsDate] = useState(null)
+  const [showStatsDayPicker, setShowStatsDayPicker] = useState(false)
+  const [statsCalendarMonth, setStatsCalendarMonth] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  })
   const [formData, setFormData] = useState(BLANK_FORM)
 
   const fetchSections = useCallback(async () => {
@@ -262,11 +283,18 @@ export default function AdminSections() {
 
   function update(field, value) {
     setFormData((previous) => ({ ...previous, [field]: value }))
+    setFieldErrors((previous) => {
+      if (!previous[field]) return previous
+      const next = { ...previous }
+      delete next[field]
+      return next
+    })
   }
 
   function handleOpenAdd() {
     setEditingSection(null)
     setFormData(BLANK_FORM)
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
@@ -281,12 +309,24 @@ export default function AdminSections() {
       shift: section.shift || 'day',
       student_type: section.student_type || 'student',
     })
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
 
+  function validate() {
+    const errors = {}
+    if (!formData.mayor_name.trim()) errors.mayor_name = 'Mayor name is required.'
+    if (!formData.program.trim()) errors.program = 'Program is required.'
+    if (!formData.year_level.trim()) errors.year_level = 'Year level is required.'
+    if (!formData.section_name.trim()) errors.section_name = 'Section name is required.'
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
+    if (!validate()) return
     setSubmitting(true)
     setError('')
 
@@ -437,6 +477,70 @@ export default function AdminSections() {
     }
   }
 
+  /**
+   * Opens the overview modal on the row it was clicked from, then fills in the
+   * aggregated stats — the same open-then-load pattern the occupation and
+   * report detail modals use.
+   */
+  async function openView(section) {
+    setViewTarget(section)
+    setViewStats(null)
+    setViewError('')
+    setStatsDate(null)
+    setViewLoading(true)
+    try {
+      const response = await sectionService.getStats(section.id)
+      if (response.success) {
+        setViewStats(response.data)
+      } else {
+        setViewError(response.message || 'Failed to load section stats')
+      }
+    } catch (err) {
+      setViewError(err.response?.data?.message || 'Failed to load section stats')
+    } finally {
+      setViewLoading(false)
+    }
+  }
+
+  /**
+   * Refetches the overview scoped to one day. Schedules and the compliance
+   * record are point-in-time totals, so the server leaves them unfiltered —
+   * only occupations, submissions and reports narrow to the picked date.
+   */
+  async function applyStatsDate(day) {
+    if (!viewTarget) return
+    setStatsDate(day)
+    setViewStats(null)
+    setViewError('')
+    setViewLoading(true)
+    try {
+      const response = await sectionService.getStats(viewTarget.id, { date: day })
+      if (response.success) {
+        setViewStats(response.data)
+      } else {
+        setViewError(response.message || 'Failed to load section stats')
+      }
+    } catch (err) {
+      setViewError(err.response?.data?.message || 'Failed to load section stats')
+    } finally {
+      setViewLoading(false)
+    }
+  }
+
+  function clearStatsDate() {
+    setStatsDate(null)
+    if (viewTarget) openView(viewTarget)
+  }
+
+  function closeView() {
+    setViewTarget(null)
+    setViewStats(null)
+    setViewError('')
+    setViewLoading(false)
+    setStatsDate(null)
+    setShowStatsDayPicker(false)
+  }
+
   const sectionLabel = [formData.program, formData.year_level, formData.section_name]
     .filter(Boolean)
     .join(' ')
@@ -576,6 +680,12 @@ export default function AdminSections() {
                   <TD align="right">
                     <RowActions label={`Actions for ${section.section_name}`}>
                       <ActionButton
+                        icon={biEyeFill}
+                        label="View section details"
+                        tone="accent"
+                        onClick={() => openView(section)}
+                      />
+                      <ActionButton
                         icon={biPencil}
                         label="Edit section"
                         tone="accent"
@@ -639,12 +749,14 @@ export default function AdminSections() {
               required
               value={formData.mayor_name}
               onChange={(event) => update('mayor_name', event.target.value)}
+              error={fieldErrors.mayor_name}
             />
             <Input
               label="Program"
               required
               value={formData.program}
               onChange={(event) => update('program', event.target.value)}
+              error={fieldErrors.program}
             />
           </div>
 
@@ -654,12 +766,14 @@ export default function AdminSections() {
               required
               value={formData.year_level}
               onChange={(event) => update('year_level', event.target.value)}
+              error={fieldErrors.year_level}
             />
             <Input
               label="Section"
               required
               value={formData.section_name}
               onChange={(event) => update('section_name', event.target.value)}
+              error={fieldErrors.section_name}
             />
             <Select
               label="Shift"
@@ -799,12 +913,306 @@ export default function AdminSections() {
         note="We ask them to change their password on first login."
       />
 
+      {/* Day picker for the overview stats — same calendar the audit log
+          browser uses. No per-day counts here: the stats endpoint only returns
+          aggregates, so days are pickable but unmarked. */}
+      <Modal
+        open={showStatsDayPicker}
+        onClose={() => setShowStatsDayPicker(false)}
+        title="Filter overview by date"
+        size="md"
+        footer={
+          <Button variant="secondary" onClick={() => setShowStatsDayPicker(false)}>
+            Cancel
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-ink-muted">
+            Pick a day to count only that day&apos;s occupations, submissions and reports.
+          </p>
+
+          <AuditLogCalendar
+            month={statsCalendarMonth}
+            onMonthChange={setStatsCalendarMonth}
+            counts={{}}
+            selected={[]}
+            onSelect={() => {}}
+            onPickDay={(day) => {
+              setShowStatsDayPicker(false)
+              applyStatsDate(day)
+            }}
+          />
+        </div>
+      </Modal>
+
       {/* Batch import */}
       <SectionsBatchUploadModal
         open={showBatchUpload}
         onClose={() => setShowBatchUpload(false)}
         onImported={fetchSections}
       />
+
+      {/* Section overview */}
+      <Modal
+        open={Boolean(viewTarget)}
+        onClose={closeView}
+        title={viewTarget ? `Section overview — ${viewTarget.section_name}` : 'Section overview'}
+        size="lg"
+        bodyClassName="no-scrollbar"
+        footer={
+          <Button variant="secondary" onClick={closeView}>
+            Close
+          </Button>
+        }
+      >
+        {viewTarget && (
+          <div className="flex flex-col gap-4">
+            {viewError && (
+              <Alert tone="bad" onDismiss={() => setViewError('')}>
+                {viewError}
+              </Alert>
+            )}
+
+            {viewLoading && <LoadingBlock label="Loading section stats…" compact />}
+
+            {viewStats && !viewLoading && (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Button
+                    variant="secondary"
+                    icon={biCalendar}
+                    onClick={() => setShowStatsDayPicker(true)}
+                  >
+                    {statsDate ? 'Change date' : 'Filter by date'}
+                  </Button>
+                  {statsDate && (
+                    <Button variant="ghost" size="xs" onClick={clearStatsDate}>
+                      Clear · {formatDate(statsDate)}
+                    </Button>
+                  )}
+                </div>
+
+                {statsDate && (
+                  <Alert tone="info">
+                    Occupations, submissions and reports are counted for {formatDate(statsDate)}
+                    only. Schedules and compliance are totals and stay unfiltered.
+                  </Alert>
+                )}
+
+                <BentoGrid>
+                  <StatCard
+                    variant="feature"
+                    className="col-span-full row-span-2"
+                    label="Class"
+                    value={[viewTarget.program, `${viewTarget.year_level ?? ''}${viewTarget.section_name ?? ''}`]
+                      .filter(Boolean)
+                      .join(' ')}
+                    hint={viewTarget.mayor_name ? `Mayor: ${viewTarget.mayor_name}` : undefined}
+                    footer={
+                      <StatusBadge
+                        map={ACTIVE_STATUS}
+                        value={String(Boolean(viewTarget.is_active))}
+                      />
+                    }
+                  />
+                </BentoGrid>
+
+                <BentoGrid cols={3}>
+                  <StatCard label="Schedules" value={viewStats.schedules} />
+                  <StatCard
+                    label="Occupations"
+                    value={viewStats.occupations.total}
+                    hint={
+                      Object.entries(viewStats.occupations.byStatus)
+                        .map(([status, count]) => `${count} ${status}`)
+                        .join(' · ') || 'none yet'
+                    }
+                  />
+                  <StatCard
+                    label="Submissions"
+                    value={viewStats.submissions.total}
+                    hint={`${viewStats.submissions.before} before · ${viewStats.submissions.after} after`}
+                  />
+                  <StatCard
+                    label="Reports"
+                    value={viewStats.reports.total}
+                    hint={
+                      Object.entries(viewStats.reports.byStatus)
+                        .map(([status, count]) => `${count} ${status}`)
+                        .join(' · ') || 'none filed'
+                    }
+                  />
+                  <StatCard
+                    label="Cleaning records"
+                    value={viewStats.cleaning.total}
+                    hint={
+                      Object.entries(viewStats.cleaning.byStatus)
+                        .map(([status, count]) => `${count} ${status}`)
+                        .join(' · ') || 'none yet'
+                    }
+                  />
+                  <StatCard
+                    label="Excuse requests"
+                    value={viewStats.excuses.total}
+                    hint={
+                      Object.entries(viewStats.excuses.byStatus)
+                        .map(([status, count]) => `${count} ${status}`)
+                        .join(' · ') || 'none filed'
+                    }
+                  />
+                </BentoGrid>
+
+                {viewStats.compliance && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Latest compliance record</CardTitle>
+                    </CardHeader>
+                    <CardBody>
+                      <DetailList
+                        columns={3}
+                        items={[
+                          {
+                            label: 'Period',
+                            value: `${formatDate(viewStats.compliance.period_start)} – ${formatDate(viewStats.compliance.period_end)}`,
+                          },
+                          { label: 'Compliance rate', value: `${viewStats.compliance.compliance_rate}%` },
+                          {
+                            label: 'Submissions',
+                            value: `${viewStats.compliance.total_completed_submissions} of ${viewStats.compliance.total_expected_submissions}`,
+                          },
+                        ]}
+                      />
+                    </CardBody>
+                  </Card>
+                )}
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Reports by reason</CardTitle>
+                  </CardHeader>
+                  <CardBody>
+                    {viewStats.reports.byReason.length === 0 ? (
+                      <p className="py-4 text-center text-sm text-ink-muted">
+                        No reports filed for this section.
+                      </p>
+                    ) : (
+                      <ScrollX minW="24rem">
+                        <Table>
+                          <THead>
+                            <tr>
+                              <TH>Reason</TH>
+                              <TH align="right">Count</TH>
+                            </tr>
+                          </THead>
+                          <TBody>
+                            {viewStats.reports.byReason.map((row) => (
+                              <TR key={row.reason}>
+                                <TD>{row.reason}</TD>
+                                <TD align="right" className="tabular">
+                                  {row.count}
+                                </TD>
+                              </TR>
+                            ))}
+                          </TBody>
+                        </Table>
+                      </ScrollX>
+                    )}
+                  </CardBody>
+                </Card>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Occupations</CardTitle>
+                  </CardHeader>
+                  <CardBody>
+                    {viewStats.occupations.list.length === 0 ? (
+                      <p className="py-4 text-center text-sm text-ink-muted">
+                        No occupation records for this section yet.
+                      </p>
+                    ) : (
+                      <ScrollX minW="30rem">
+                        <Table>
+                          <THead>
+                            <tr>
+                              <TH>Date</TH>
+                              <TH>Subject</TH>
+                              <TH>Room</TH>
+                              <TH>Status</TH>
+                            </tr>
+                          </THead>
+                          <TBody>
+                            {viewStats.occupations.list.map((occupation) => (
+                              <TR key={occupation.id}>
+                                <TD className="whitespace-nowrap">
+                                  {formatDate(occupation.occupation_date)}
+                                </TD>
+                                <TD>{occupation.schedule?.subject_name || '—'}</TD>
+                                <TD className="tabular">{occupation.room?.room_code || '—'}</TD>
+                                <TD>
+                                  <StatusBadge map={OCCUPATION_STATUS} value={occupation.status} />
+                                </TD>
+                              </TR>
+                            ))}
+                          </TBody>
+                        </Table>
+                      </ScrollX>
+                    )}
+                  </CardBody>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Cleaning records</CardTitle>
+                  </CardHeader>
+                  <CardBody>
+                    {viewStats.cleaning.records.length === 0 ? (
+                      <p className="py-4 text-center text-sm text-ink-muted">
+                        No cleaning records for this section yet.
+                      </p>
+                    ) : (
+                      <ScrollX minW="24rem">
+                        <Table>
+                          <THead>
+                            <tr>
+                              <TH>Date</TH>
+                              <TH>Area</TH>
+                              <TH>Status</TH>
+                            </tr>
+                          </THead>
+                          <TBody>
+                            {viewStats.cleaning.records.map((record) => (
+                              <TR key={record.id}>
+                                <TD className="whitespace-nowrap">
+                                  {formatDate(record.submitted_at)}
+                                </TD>
+                                <TD>
+                                  {record.area?.name
+                                    ? `${record.area.name}${record.area.floor ? ` (${record.area.floor})` : ''}`
+                                    : '—'}
+                                </TD>
+                                <TD>
+                                  <Badge
+                                    tone={record.status === 'completed' ? 'ok' : 'warn'}
+                                  >
+                                    {record.status === 'completed' ? 'Completed' : 'Pending'}
+                                  </Badge>
+                                </TD>
+                              </TR>
+                            ))}
+                          </TBody>
+                        </Table>
+                      </ScrollX>
+                    )}
+                  </CardBody>
+                </Card>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
     </>
   )
 }

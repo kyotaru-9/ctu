@@ -7,9 +7,12 @@ import {
   biCloudUpload,
   biPencil,
   biPlus,
+  biToggleOff,
+  biToggleOn,
   biTrash,
 } from '../../utils/icons'
 import {
+  ACTIVE_STATUS,
   Alert,
   Badge,
   Button,
@@ -21,6 +24,7 @@ import {
   ActionButton,
   ScrollX,
   Select,
+  StatusBadge,
   TBody,
   TD,
   TH,
@@ -59,7 +63,10 @@ export default function AdminAreaAssignments() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [togglingId, setTogglingId] = useState(null)
+  const [deactivateTarget, setDeactivateTarget] = useState(null)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [formData, setFormData] = useState(BLANK_FORM)
 
   const fetchAssignments = useCallback(async () => {
@@ -136,11 +143,18 @@ export default function AdminAreaAssignments() {
 
   function update(field, value) {
     setFormData((previous) => ({ ...previous, [field]: value }))
+    setFieldErrors((previous) => {
+      if (!previous[field]) return previous
+      const next = { ...previous }
+      delete next[field]
+      return next
+    })
   }
 
   function handleOpenAdd() {
     setEditingAssignment(null)
     setFormData(BLANK_FORM)
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
@@ -152,12 +166,23 @@ export default function AdminAreaAssignments() {
       area_id: assignment.area_id || '',
       day_of_week: assignment.day_of_week || '',
     })
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
 
+  function validate() {
+    const errors = {}
+    if (!formData.section_id) errors.section_id = 'Select a section.'
+    if (!formData.area_id) errors.area_id = 'Select an area.'
+    if (!formData.day_of_week) errors.day_of_week = 'Select a day.'
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
+    if (!validate()) return
     setSubmitting(true)
     setError('')
 
@@ -178,6 +203,55 @@ export default function AdminAreaAssignments() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  /**
+   * Disabling an assignment hides it from the section's rotational cleaning
+   * view without deleting the row — student and special queries already filter
+   * on is_active. The row updates from the response so the badge reflects the
+   * click immediately, then the list re-syncs.
+   */
+  async function applyStatus(assignment, nextActive) {
+    setTogglingId(assignment.id)
+    setError('')
+
+    try {
+      const response = await areaAssignmentService.update(assignment.id, { is_active: nextActive })
+
+      if (!response.success) {
+        setError(response.message || 'Failed to update assignment')
+        return false
+      }
+
+      setAssignments((current) =>
+        current.map((item) => (item.id === assignment.id ? { ...item, ...response.data } : item))
+      )
+      await fetchAssignments()
+      return true
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update assignment')
+      return false
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
+  /**
+   * Disabling asks first, the same gate the delete dialog uses: both end at
+   * is_active = false. Enabling goes straight through.
+   */
+  function handleToggleStatus(assignment) {
+    if (assignment.is_active) {
+      setDeactivateTarget(assignment)
+      return
+    }
+    applyStatus(assignment, true)
+  }
+
+  async function handleConfirmDeactivate() {
+    if (!deactivateTarget) return
+    const ok = await applyStatus(deactivateTarget, false)
+    if (ok) setDeactivateTarget(null)
   }
 
   function openDeleteDialog(assignment) {
@@ -258,6 +332,7 @@ export default function AdminAreaAssignments() {
                 <TH>Section</TH>
                 <TH>Area</TH>
                 <TH>Day</TH>
+                <TH>Status</TH>
                 <TH align="right">Actions</TH>
               </tr>
             </THead>
@@ -269,6 +344,9 @@ export default function AdminAreaAssignments() {
                   <TD>
                     <Badge tone="info">{DAY_LABELS[assignment.day_of_week] || assignment.day_of_week}</Badge>
                   </TD>
+                  <TD>
+                    <StatusBadge map={ACTIVE_STATUS} value={String(Boolean(assignment.is_active))} />
+                  </TD>
                   <TD align="right">
                     <RowActions label={`Actions for assignment`}>
                       <ActionButton
@@ -276,6 +354,17 @@ export default function AdminAreaAssignments() {
                         label="Edit assignment"
                         tone="accent"
                         onClick={() => handleOpenEdit(assignment)}
+                      />
+                      <ActionButton
+                        icon={assignment.is_active ? biToggleOff : biToggleOn}
+                        label={
+                          assignment.is_active
+                            ? 'Disable assignment'
+                            : 'Enable assignment'
+                        }
+                        tone={assignment.is_active ? 'bad' : 'ok'}
+                        disabled={togglingId === assignment.id}
+                        onClick={() => handleToggleStatus(assignment)}
                       />
                       <ActionButton
                         icon={biTrash}
@@ -318,6 +407,7 @@ export default function AdminAreaAssignments() {
               required
               value={formData.section_id}
               onChange={(event) => update('section_id', event.target.value)}
+              error={fieldErrors.section_id}
             >
               <option value="">Select section</option>
               {sections.map((section) => (
@@ -332,6 +422,7 @@ export default function AdminAreaAssignments() {
               required
               value={formData.area_id}
               onChange={(event) => update('area_id', event.target.value)}
+              error={fieldErrors.area_id}
             >
               <option value="">Select area</option>
               {areas.map((area) => (
@@ -346,6 +437,7 @@ export default function AdminAreaAssignments() {
               required
               value={formData.day_of_week}
               onChange={(event) => update('day_of_week', event.target.value)}
+              error={fieldErrors.day_of_week}
               className="col-span-2"
             >
               <option value="">Select day</option>
@@ -359,14 +451,30 @@ export default function AdminAreaAssignments() {
         </form>
       </Modal>
 
+      {/* Disable confirmation */}
+      <ConfirmDialog
+        open={Boolean(deactivateTarget)}
+        onClose={() => setDeactivateTarget(null)}
+        onConfirm={handleConfirmDeactivate}
+        loading={Boolean(togglingId)}
+        title="Disable assignment"
+        description={
+          deactivateTarget
+            ? `Disable the assignment for ${getSectionLabel(deactivateTarget.section_id)} on ${DAY_LABELS[deactivateTarget.day_of_week] || deactivateTarget.day_of_week}? The section will stop seeing this area until it is re-enabled.`
+            : ''
+        }
+        confirmLabel="Disable"
+        tone="bad"
+      />
+
       {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
         title="Delete assignment"
-        message={`Are you sure you want to delete this assignment? This action cannot be undone.`}
+        description={`Are you sure you want to delete this assignment? This action cannot be undone.`}
         confirmLabel="Delete"
         tone="bad"
-        onCancel={closeDeleteDialog}
+        onClose={closeDeleteDialog}
         onConfirm={handleDelete}
         loading={deleting}
       />

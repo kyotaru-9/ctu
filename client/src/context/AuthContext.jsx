@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { authService } from '../services/authService'
+import { authStorage } from '../services/authStorage'
 
 const AuthContext = createContext(null)
 
@@ -15,7 +16,7 @@ export function AuthProvider({ children }) {
     try {
       const currentUser = await authService.getCurrentUser()
       if (currentUser) {
-        localStorage.setItem('user_profile', JSON.stringify(currentUser))
+        authStorage.setItem('user_profile', JSON.stringify(currentUser))
       }
       setUser(currentUser)
     } catch {
@@ -28,8 +29,8 @@ export function AuthProvider({ children }) {
     }
   }
 
-  const login = async (email, password) => {
-    const userData = await authService.login(email, password)
+  const login = async (email, password, remember = true) => {
+    const userData = await authService.login(email, password, remember)
     const userProfile = userData.user
     setUser(userProfile)
     return userProfile

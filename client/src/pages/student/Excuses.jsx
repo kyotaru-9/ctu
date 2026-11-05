@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { cx } from '../../lib/cx'
 import { excuseService } from '../../services/excuseService'
 import { scheduleService } from '../../services/scheduleService'
 import { rotationalService } from '../../services/rotationalService'
@@ -34,6 +35,7 @@ export default function StudentExcuses() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [schedules, setSchedules] = useState([])
   const [assignments, setAssignments] = useState([])
   const [formData, setFormData] = useState({
@@ -90,6 +92,7 @@ export default function StudentExcuses() {
       reason: '',
       image: null,
     })
+    setFieldErrors({})
     setModalOpen(true)
   }, [fetchSchedulesAndAssignments])
 
@@ -104,10 +107,52 @@ export default function StudentExcuses() {
       reason: '',
       image: null,
     })
+    setFieldErrors({})
   }, [])
+
+  function updateField(field, value) {
+    setFormData((previous) => ({ ...previous, [field]: value }))
+    setFieldErrors((previous) => {
+      if (!previous[field]) return previous
+      const next = { ...previous }
+      delete next[field]
+      return next
+    })
+  }
+
+  function validate() {
+    const errors = {}
+    const today = new Date().toISOString().split('T')[0]
+
+    if (!formData.excuse_date) {
+      errors.excuse_date = 'Excuse date is required.'
+    } else if (formData.excuse_date < today) {
+      errors.excuse_date = 'Excuse date cannot be in the past.'
+    }
+    if (formData.excuse_type === 'room_schedule' && !formData.schedule_id) {
+      errors.schedule_id = 'Select a schedule.'
+    }
+    if (formData.excuse_type === 'area_assignment' && !formData.area_id) {
+      errors.area_id = 'Select an area assignment.'
+    }
+    if (!formData.reason.trim()) {
+      errors.reason = 'Reason is required.'
+    }
+    if (!formData.image) {
+      errors.image = 'Proof image is required.'
+    } else if (!formData.image.type.startsWith('image/')) {
+      errors.image = 'File must be an image.'
+    } else if (formData.image.size > 10 * 1024 * 1024) {
+      errors.image = 'Image must be 10 MB or smaller.'
+    }
+
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (!validate()) return
     setSaving(true)
     setError('')
 
@@ -220,8 +265,10 @@ export default function StudentExcuses() {
           <Input
             label="Excuse Date"
             type="date"
+            min={new Date().toISOString().split('T')[0]}
             value={formData.excuse_date}
-            onChange={(event) => setFormData({ ...formData, excuse_date: event.target.value })}
+            onChange={(event) => updateField('excuse_date', event.target.value)}
+            error={fieldErrors.excuse_date}
             required
           />
 
@@ -229,7 +276,7 @@ export default function StudentExcuses() {
             label="Excuse Type"
             options={EXCUSE_TYPES}
             value={formData.excuse_type}
-            onChange={(event) => setFormData({ ...formData, excuse_type: event.target.value })}
+            onChange={(event) => updateField('excuse_type', event.target.value)}
             required
           />
 
@@ -238,7 +285,8 @@ export default function StudentExcuses() {
               label="Schedule"
               options={schedules.map(s => ({ value: s.id, label: `${s.subject_name} - ${s.rooms?.room_code || 'No Room'} (${s.day_of_week})` }))}
               value={formData.schedule_id}
-              onChange={(event) => setFormData({ ...formData, schedule_id: event.target.value })}
+              onChange={(event) => updateField('schedule_id', event.target.value)}
+              error={fieldErrors.schedule_id}
               required
             />
           )}
@@ -248,7 +296,8 @@ export default function StudentExcuses() {
               label="Area Assignment"
               options={assignments.map(a => ({ value: a.id, label: `${a.area?.area_name || 'Unknown'} (Day ${a.day_of_week})` }))}
               value={formData.area_id}
-              onChange={(event) => setFormData({ ...formData, area_id: event.target.value })}
+              onChange={(event) => updateField('area_id', event.target.value)}
+              error={fieldErrors.area_id}
               required
             />
           )}
@@ -256,24 +305,39 @@ export default function StudentExcuses() {
           <Textarea
             label="Reason"
             value={formData.reason}
-            onChange={(event) => setFormData({ ...formData, reason: event.target.value })}
+            onChange={(event) => updateField('reason', event.target.value)}
+            error={fieldErrors.reason}
             placeholder="Explain why you need an exemption…"
             rows={3}
+            required
           />
 
           <div>
-            <p className="mb-2 text-sm font-medium text-ink">Proof Image</p>
+            <p className="mb-2 text-sm font-medium text-ink">
+              Proof Image <span className="text-bad">*</span>
+            </p>
             <input
               type="file"
               accept="image/*"
-              onChange={(event) => setFormData({ ...formData, image: event.target.files[0] })}
-              className="block w-full rounded-md border border-line bg-surface p-2 text-sm"
+              onChange={(event) => updateField('image', event.target.files[0] || null)}
+              aria-invalid={Boolean(fieldErrors.image) || undefined}
+              className={cx(
+                'block w-full rounded-md border bg-surface p-2 text-sm',
+                fieldErrors.image ? 'border-bad' : 'border-line'
+              )}
               required
             />
-            {formData.image && (
-              <p className="mt-2 text-xs text-ink-muted">
-                Selected: {formData.image.name}
+            {fieldErrors.image ? (
+              <p className="mt-1.5 flex items-start gap-1 text-xs text-bad">
+                <i className="bi bi-exclamation-circle mt-px shrink-0" aria-hidden="true" />
+                {fieldErrors.image}
               </p>
+            ) : (
+              formData.image && (
+                <p className="mt-2 text-xs text-ink-muted">
+                  Selected: {formData.image.name}
+                </p>
+              )
             )}
           </div>
 

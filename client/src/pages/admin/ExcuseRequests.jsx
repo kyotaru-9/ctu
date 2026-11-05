@@ -7,7 +7,7 @@ import {
   Button,
   ConfirmDialog,
   EmptyState,
-  Field,
+  Input,
   LoadingBlock,
   Modal,
   PageHeader,
@@ -53,6 +53,7 @@ export default function AdminExcuseRequests() {
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [error, setError] = useState('')
+  const [adminFieldErrors, setAdminFieldErrors] = useState({})
   const [adminNote, setAdminNote] = useState('')
   const [adminFormData, setAdminFormData] = useState({
     section_id: '',
@@ -136,8 +137,52 @@ export default function AdminExcuseRequests() {
     }
   }
 
+  function updateAdminField(field, value) {
+    setAdminFormData((previous) => ({ ...previous, [field]: value }))
+    setAdminFieldErrors((previous) => {
+      if (!previous[field]) return previous
+      const next = { ...previous }
+      delete next[field]
+      return next
+    })
+  }
+
+  function validateAdminForm() {
+    const errors = {}
+    const today = new Date().toISOString().split('T')[0]
+
+    if (!adminFormData.section_id.trim()) {
+      errors.section_id = 'Section ID is required.'
+    }
+    if (!adminFormData.excuse_date) {
+      errors.excuse_date = 'Excuse date is required.'
+    } else if (adminFormData.excuse_date < today) {
+      errors.excuse_date = 'Excuse date cannot be in the past.'
+    }
+    if (adminFormData.excuse_type === 'room_schedule' && !adminFormData.schedule_id) {
+      errors.schedule_id = 'A schedule is required for room schedule excuses.'
+    }
+    if (adminFormData.excuse_type === 'area_assignment' && !adminFormData.area_id) {
+      errors.area_id = 'An area is required for area assignment excuses.'
+    }
+    if (!adminFormData.reason.trim()) {
+      errors.reason = 'Reason is required.'
+    }
+    if (!adminFormData.image) {
+      errors.image = 'Proof image is required.'
+    } else if (!adminFormData.image.type.startsWith('image/')) {
+      errors.image = 'File must be an image.'
+    } else if (adminFormData.image.size > 10 * 1024 * 1024) {
+      errors.image = 'Image must be 10 MB or smaller.'
+    }
+
+    setAdminFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   async function handleAdminCreate(event) {
     event.preventDefault()
+    if (!validateAdminForm()) return
     setUpdating(true)
     setError('')
 
@@ -156,6 +201,7 @@ export default function AdminExcuseRequests() {
       if (response.success) {
         await fetchExcuses()
         setAdminCreateModalOpen(false)
+        setAdminFieldErrors({})
         setAdminFormData({
           section_id: '',
           excuse_date: new Date().toISOString().split('T')[0],
@@ -188,7 +234,13 @@ export default function AdminExcuseRequests() {
                 <strong className="tabular text-ink">{pendingCount}</strong> pending
               </span>
             )}
-            <Button variant="primary" onClick={() => setAdminCreateModalOpen(true)}>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setAdminFieldErrors({})
+                setAdminCreateModalOpen(true)
+              }}
+            >
               + Create Excuse
             </Button>
           </>
@@ -450,49 +502,68 @@ export default function AdminExcuseRequests() {
         }
       >
         <form onSubmit={handleAdminCreate} className="flex flex-col gap-4">
-          <Field
+          <Input
             label="Section"
             type="text"
             value={adminFormData.section_id}
-            onChange={(event) => setAdminFormData({ ...adminFormData, section_id: event.target.value })}
+            onChange={(event) => updateAdminField('section_id', event.target.value)}
+            error={adminFieldErrors.section_id}
             placeholder="Enter section ID"
             required
           />
 
-          <Field
+          <Input
             label="Excuse Date"
             type="date"
+            min={new Date().toISOString().split('T')[0]}
             value={adminFormData.excuse_date}
-            onChange={(event) => setAdminFormData({ ...adminFormData, excuse_date: event.target.value })}
+            onChange={(event) => updateAdminField('excuse_date', event.target.value)}
+            error={adminFieldErrors.excuse_date}
             required
           />
 
-          <Field
+          <Select
             label="Excuse Type"
-            component={Select}
             options={EXCUSE_TYPES}
             value={adminFormData.excuse_type}
-            onChange={(value) => setAdminFormData({ ...adminFormData, excuse_type: value })}
+            onChange={(event) => updateAdminField('excuse_type', event.target.value)}
+            error={adminFieldErrors.excuse_type}
             required
           />
 
-          <Field
+          <Textarea
             label="Reason"
-            type="textarea"
             value={adminFormData.reason}
-            onChange={(event) => setAdminFormData({ ...adminFormData, reason: event.target.value })}
+            onChange={(event) => updateAdminField('reason', event.target.value)}
+            error={adminFieldErrors.reason}
             placeholder="Explain the reason for this excuse…"
             rows={3}
             required
           />
 
-          <Field
-            label="Proof Image"
-            type="file"
-            accept="image/*"
-            onChange={(event) => setAdminFormData({ ...adminFormData, image: event.target.files[0] })}
-            required
-          />
+          <div>
+            <p className="mb-1.5 block text-[0.8125rem] font-medium text-ink">
+              Proof Image <span className="text-bad">*</span>
+            </p>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => updateAdminField('image', event.target.files[0] || null)}
+              aria-invalid={Boolean(adminFieldErrors.image) || undefined}
+              className={`field w-full ${adminFieldErrors.image ? 'field-invalid' : ''}`}
+              required
+            />
+            {adminFieldErrors.image ? (
+              <p className="mt-1.5 flex items-start gap-1 text-xs text-bad">
+                <i className="bi bi-exclamation-circle mt-px shrink-0" aria-hidden="true" />
+                {adminFieldErrors.image}
+              </p>
+            ) : (
+              adminFormData.image && (
+                <p className="mt-1.5 text-xs text-ink-muted">Selected: {adminFormData.image.name}</p>
+              )
+            )}
+          </div>
 
           <p className="text-xs text-ink-muted">
             Room, area, and schedule can be left blank to apply the excuse to all. Admin-created excuses are auto-approved.

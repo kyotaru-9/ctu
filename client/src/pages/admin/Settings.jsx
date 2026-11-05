@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { reportService } from '../../services/reportService'
 import AuditLogCleanupModal from '../../features/audit/AuditLogCleanupModal'
-import { biCheck, biPencil, biPlus, biTrash, biX } from '../../utils/icons'
+import { biCheck, biPencil, biPlus, biToggleOff, biToggleOn, biTrash, biX } from '../../utils/icons'
 import {
   ActionButton,
   Alert,
+  Badge,
   Button,
   Card,
   CardBody,
@@ -16,14 +17,6 @@ import {
   SkeletonText,
   Switch,
 } from '../../components/ui'
-
-const GENERAL_DEFAULTS = {
-  systemName: 'CTU',
-  institution: 'Cebu Technological University - Naga Extension Campus',
-  timeLimit: 30,
-  maxImageSize: 10,
-  imageTypes: 'jpg, jpeg, png, webp',
-}
 
 const SECURITY_DEFAULTS = {
   requireQr: true,
@@ -39,12 +32,13 @@ export default function AdminSettings() {
   const [newReason, setNewReason] = useState('')
   const [editingReason, setEditingReason] = useState(null)
   const [editReasonName, setEditReasonName] = useState('')
+  const [editReasonDescription, setEditReasonDescription] = useState('')
+  const [togglingReasonId, setTogglingReasonId] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [showAuditCleanup, setShowAuditCleanup] = useState(false)
 
-  const [general, setGeneral] = useState(GENERAL_DEFAULTS)
   const [security, setSecurity] = useState(SECURITY_DEFAULTS)
 
   const fetchReasons = useCallback(async () => {
@@ -62,10 +56,6 @@ export default function AdminSettings() {
   useEffect(() => {
     fetchReasons()
   }, [fetchReasons])
-
-  function updateGeneral(field, value) {
-    setGeneral((previous) => ({ ...previous, [field]: value }))
-  }
 
   function updateSecurity(field, value) {
     setSecurity((previous) => ({ ...previous, [field]: value }))
@@ -99,13 +89,17 @@ export default function AdminSettings() {
     setError('')
     setBusy(true)
     try {
-      const response = await reportService.updateReason(editingReason.id, { name })
+      const response = await reportService.updateReason(editingReason.id, {
+        name,
+        description: editReasonDescription.trim() || null,
+      })
       if (response.success) {
         setReportReasons((previous) =>
           previous.map((reason) => (reason.id === editingReason.id ? response.data : reason))
         )
         setEditingReason(null)
         setEditReasonName('')
+        setEditReasonDescription('')
       } else {
         setError(response.message || 'Failed to update reason')
       }
@@ -113,6 +107,32 @@ export default function AdminSettings() {
       setError(err.response?.data?.message || 'Failed to update reason')
     } finally {
       setBusy(false)
+    }
+  }
+
+  /**
+   * Shows or hides a reason in the student report form. Deactivating keeps the
+   * row so reports that already point at it still resolve a name; the delete
+   * dialog is what removes it entirely when nothing references it.
+   */
+  async function handleToggleReason(reason) {
+    setError('')
+    setTogglingReasonId(reason.id)
+    try {
+      const response = await reportService.updateReason(reason.id, {
+        is_active: !reason.is_active,
+      })
+      if (response.success) {
+        setReportReasons((previous) =>
+          previous.map((item) => (item.id === reason.id ? response.data : item))
+        )
+      } else {
+        setError(response.message || 'Failed to update reason')
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update reason')
+    } finally {
+      setTogglingReasonId(null)
     }
   }
 
@@ -147,54 +167,6 @@ export default function AdminSettings() {
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* General */}
-        <Card>
-          <CardHeader>
-            <CardTitle>General</CardTitle>
-          </CardHeader>
-          <CardBody className="form-stack">
-            <Alert tone="neutral" className="mb-0">
-              These preferences are not yet persisted — they reset on reload.
-            </Alert>
-
-            <div className="form-grid">
-              <Input
-                label="System name"
-                value={general.systemName}
-                onChange={(event) => updateGeneral('systemName', event.target.value)}
-              />
-              <Input
-                label="Institution"
-                value={general.institution}
-                onChange={(event) => updateGeneral('institution', event.target.value)}
-              />
-              <Input
-                label="Submission time limit (minutes)"
-                type="number"
-                min="1"
-                max="120"
-                value={general.timeLimit}
-                onChange={(event) => updateGeneral('timeLimit', event.target.value)}
-              />
-              <Input
-                label="Max image size (MB)"
-                type="number"
-                min="1"
-                max="50"
-                value={general.maxImageSize}
-                onChange={(event) => updateGeneral('maxImageSize', event.target.value)}
-              />
-            </div>
-
-            <Input
-              label="Allowed image types"
-              value={general.imageTypes}
-              onChange={(event) => updateGeneral('imageTypes', event.target.value)}
-              hint="Comma-separated list of allowed file extensions"
-            />
-          </CardBody>
-        </Card>
-
         {/* Security */}
         <Card>
           <CardHeader>
@@ -281,12 +253,22 @@ export default function AdminSettings() {
                   >
                     {editingReason?.id === reason.id ? (
                       <>
-                        <Input
-                          aria-label={`Edit ${reason.name}`}
-                          value={editReasonName}
-                          onChange={(event) => setEditReasonName(event.target.value)}
-                          className="h-9"
-                        />
+                        <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+                          <Input
+                            aria-label={`Edit ${reason.name}`}
+                            placeholder="Reason name"
+                            value={editReasonName}
+                            onChange={(event) => setEditReasonName(event.target.value)}
+                            className="h-9"
+                          />
+                          <Input
+                            aria-label={`Edit description for ${reason.name}`}
+                            placeholder="Description (optional)"
+                            value={editReasonDescription}
+                            onChange={(event) => setEditReasonDescription(event.target.value)}
+                            className="h-9"
+                          />
+                        </div>
                         <ActionButton
                           icon={biCheck}
                           label="Save reason"
@@ -300,12 +282,23 @@ export default function AdminSettings() {
                           onClick={() => {
                             setEditingReason(null)
                             setEditReasonName('')
+                            setEditReasonDescription('')
                           }}
                         />
                       </>
                     ) : (
                       <>
-                        <span className="min-w-0 flex-1 truncate text-sm text-ink">{reason.name}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-2">
+                            <span className="truncate text-sm text-ink">{reason.name}</span>
+                            {!reason.is_active && <Badge tone="neutral">Inactive</Badge>}
+                          </span>
+                          {reason.description && (
+                            <span className="block truncate text-xs text-ink-muted">
+                              {reason.description}
+                            </span>
+                          )}
+                        </span>
                         <div className="flex shrink-0 gap-1">
                           <ActionButton
                             icon={biPencil}
@@ -314,7 +307,19 @@ export default function AdminSettings() {
                             onClick={() => {
                               setEditingReason(reason)
                               setEditReasonName(reason.name)
+                              setEditReasonDescription(reason.description || '')
                             }}
+                          />
+                          <ActionButton
+                            icon={reason.is_active ? biToggleOff : biToggleOn}
+                            label={
+                              reason.is_active
+                                ? `Deactivate ${reason.name}`
+                                : `Activate ${reason.name}`
+                            }
+                            tone={reason.is_active ? 'bad' : 'ok'}
+                            disabled={togglingReasonId === reason.id}
+                            onClick={() => handleToggleReason(reason)}
                           />
                           <ActionButton
                             icon={biTrash}

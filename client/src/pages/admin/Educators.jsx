@@ -51,7 +51,9 @@ export default function AdminEducators() {
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [togglingId, setTogglingId] = useState(null)
+  const [deactivateTarget, setDeactivateTarget] = useState(null)
   const [formData, setFormData] = useState(BLANK_FORM)
 
   const fetchEducators = useCallback(async () => {
@@ -87,11 +89,18 @@ export default function AdminEducators() {
 
   function update(field, value) {
     setFormData((previous) => ({ ...previous, [field]: value }))
+    setFieldErrors((previous) => {
+      if (!previous[field]) return previous
+      const next = { ...previous }
+      delete next[field]
+      return next
+    })
   }
 
   function handleOpenAdd() {
     setEditingEducator(null)
     setFormData(BLANK_FORM)
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
@@ -102,12 +111,26 @@ export default function AdminEducators() {
       name: educator.name || '',
       department: educator.department || '',
     })
+    setFieldErrors({})
     setError('')
     setShowForm(true)
   }
 
+  function validate() {
+    const errors = {}
+    if (!formData.name.trim()) {
+      errors.name = 'Name is required.'
+    }
+    if (!formData.department.trim()) {
+      errors.department = 'Department is required.'
+    }
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
+    if (!validate()) return
     setSubmitting(true)
     setError('')
 
@@ -155,8 +178,24 @@ export default function AdminEducators() {
     }
   }
 
+  /**
+   * Deactivating asks first, the same as the delete dialog does: the trash
+   * action and this toggle both end at is_active = false, so both confirm
+   * before they touch the row. Enabling needs no explanation and goes
+   * straight through.
+   */
   function handleToggleStatus(educator) {
-    applyStatus(educator, !educator.is_active)
+    if (educator.is_active) {
+      setDeactivateTarget(educator)
+      return
+    }
+    applyStatus(educator, true)
+  }
+
+  async function handleConfirmDeactivate() {
+    if (!deactivateTarget) return
+    const ok = await applyStatus(deactivateTarget, false)
+    if (ok) setDeactivateTarget(null)
   }
 
   function openDeleteDialog(educator) {
@@ -175,13 +214,13 @@ export default function AdminEducators() {
     try {
       const response = await educatorService.delete(deleteTarget.id)
       if (!response.success) {
-        setError(response.message || 'Failed to deactivate educator')
+        setError(response.message || 'Failed to delete educator')
         return
       }
       closeDeleteDialog()
       await fetchEducators()
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to deactivate educator')
+      setError(err.response?.data?.message || 'Failed to delete educator')
     } finally {
       setDeleting(false)
     }
@@ -328,25 +367,49 @@ export default function AdminEducators() {
               required
               value={formData.name}
               onChange={(event) => update('name', event.target.value)}
+              error={fieldErrors.name}
             />
             <Input
               label="Department"
               required
               value={formData.department}
               onChange={(event) => update('department', event.target.value)}
+              error={fieldErrors.department}
             />
           </div>
         </form>
       </Modal>
 
-      {/* Delete confirmation */}
+      {/* Deactivate confirmation — same gate the delete dialog uses, since
+          both actions land on is_active = false. */}
       <ConfirmDialog
-        open={!!deleteTarget}
+        open={Boolean(deactivateTarget)}
+        onClose={() => setDeactivateTarget(null)}
+        onConfirm={handleConfirmDeactivate}
+        loading={Boolean(togglingId)}
         title="Deactivate educator"
-        message={`Are you sure you want to deactivate ${deleteTarget?.name}? This will remove them from active schedules.`}
+        description={
+          deactivateTarget
+            ? `Deactivate ${deactivateTarget.name}? They will be removed from the active educator list and can't be assigned to new schedules.`
+            : ''
+        }
         confirmLabel="Deactivate"
         tone="bad"
-        onCancel={closeDeleteDialog}
+      />
+
+      {/* Delete confirmation — a real delete now, not the soft deactivate the
+          toggle covers. */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete educator"
+        description={
+          deleteTarget
+            ? `Permanently delete ${deleteTarget.name}? Schedules already assigned to them keep their records but lose the educator link. To only hide them, use the toggle instead.`
+            : ''
+        }
+        confirmLabel="Delete permanently"
+        tone="bad"
+        onClose={closeDeleteDialog}
         onConfirm={handleDelete}
         loading={deleting}
       />

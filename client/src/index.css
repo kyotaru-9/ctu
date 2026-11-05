@@ -246,6 +246,16 @@
   }
 }
 
+/* Scrollable but with no visible scrollbar — for tall modal bodies where the
+   bar is noise. Scrolling itself is unaffected. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* ==========================================================================
    Utilities
    ========================================================================== */
@@ -319,6 +329,48 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* --- Signed-out pages ----------------------------------------------------
+   The three brand hues are sampled from the campus mark. They stay under
+   ~16% so the canvas still reads as the light grey it is everywhere else —
+   the wash is atmosphere, not a second surface. */
+
+@utility auth-backdrop {
+  background:
+    radial-gradient(
+      42rem 30rem at 12% -12%,
+      color-mix(in srgb, var(--color-brand-gold) 16%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      46rem 34rem at 88% 112%,
+      color-mix(in srgb, var(--color-brand-blue) 12%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      34rem 26rem at 78% -8%,
+      color-mix(in srgb, var(--color-brand-teal) 14%, transparent),
+      transparent 60%
+    );
+}
+
+/* One quiet entrance for the whole auth column — the page is a single task,
+   so the content arrives as a unit rather than piece by piece. */
+@utility auth-enter {
+  animation: auth-enter 0.5s var(--ease-out-soft) both;
+}
+
+@keyframes auth-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* ==========================================================================

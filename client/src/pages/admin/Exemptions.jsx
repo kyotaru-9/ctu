@@ -7,7 +7,7 @@ import {
   Button,
   ConfirmDialog,
   EmptyState,
-  Field,
+  Input,
   Modal,
   PageHeader,
   RowActions,
@@ -21,6 +21,7 @@ import {
   TR,
   Table,
   TableCard,
+  Textarea,
 } from '../../components/ui'
 
 const EXEMPTION_TYPES = [
@@ -43,6 +44,7 @@ export default function AdminExemptions() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [formData, setFormData] = useState({
     exemption_date: '',
     exemption_type: 'all_day',
@@ -85,6 +87,7 @@ export default function AdminExemptions() {
   }, [exemptions, searchTerm])
 
   const openModal = useCallback(() => {
+    setFieldErrors({})
     setFormData({
       exemption_date: new Date().toISOString().split('T')[0],
       exemption_type: 'all_day',
@@ -100,6 +103,7 @@ export default function AdminExemptions() {
   const closeModal = useCallback(() => {
     setModalOpen(false)
     setSelected(null)
+    setFieldErrors({})
     setFormData({
       exemption_date: '',
       exemption_type: 'all_day',
@@ -111,8 +115,34 @@ export default function AdminExemptions() {
     })
   }, [])
 
+  function updateField(field, value) {
+    setFormData((previous) => ({ ...previous, [field]: value }))
+    setFieldErrors((previous) => {
+      if (!previous[field]) return previous
+      const next = { ...previous }
+      delete next[field]
+      return next
+    })
+  }
+
+  function validate() {
+    const errors = {}
+    if (!formData.exemption_date) {
+      errors.exemption_date = 'Exemption date is required.'
+    }
+    if (!formData.exemption_type) {
+      errors.exemption_type = 'Exemption type is required.'
+    }
+    if (!formData.reason.trim()) {
+      errors.reason = 'Reason is required.'
+    }
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
+    if (!validate()) return
     setSaving(true)
     setError('')
 
@@ -268,28 +298,29 @@ export default function AdminExemptions() {
         }
       >
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <Field
+          <Input
             label="Exemption Date"
             type="date"
             value={formData.exemption_date}
-            onChange={(event) => setFormData({ ...formData, exemption_date: event.target.value })}
+            onChange={(event) => updateField('exemption_date', event.target.value)}
+            error={fieldErrors.exemption_date}
             required
           />
 
-          <Field
+          <Select
             label="Exemption Type"
-            component={Select}
             options={EXEMPTION_TYPES}
             value={formData.exemption_type}
-            onChange={(value) => setFormData({ ...formData, exemption_type: value })}
+            onChange={(event) => updateField('exemption_type', event.target.value)}
+            error={fieldErrors.exemption_type}
             required
           />
 
-          <Field
+          <Textarea
             label="Reason"
-            type="textarea"
             value={formData.reason}
-            onChange={(event) => setFormData({ ...formData, reason: event.target.value })}
+            onChange={(event) => updateField('reason', event.target.value)}
+            error={fieldErrors.reason}
             placeholder="Explain why this day is exempted…"
             rows={3}
             required
@@ -305,7 +336,7 @@ export default function AdminExemptions() {
         open={Boolean(deleteConfirm)}
         onClose={() => setDeleteConfirm(null)}
         title="Delete exemption"
-        message={`Are you sure you want to delete the exemption for ${formatDate(deleteConfirm?.exemption_date)}? This action cannot be undone.`}
+        description={`Are you sure you want to delete the exemption for ${formatDate(deleteConfirm?.exemption_date)}? This action cannot be undone.`}
         onConfirm={() => handleDelete(deleteConfirm)}
         loading={saving}
       />

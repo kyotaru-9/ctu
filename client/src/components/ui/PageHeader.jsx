@@ -53,13 +53,15 @@ export function StatGrid({ columns = 4, className, children }) {
  * grid utilities: `col-span-2 row-span-2` for a hero, `col-span-2` for a wide
  * tile, nothing for a single cell.
  */
-export function BentoGrid({ rows = 2, className, children }) {
+export function BentoGrid({ rows = 2, cols = 4, className, children }) {
   const tracks = { 1: 'lg:grid-rows-1', 2: 'lg:grid-rows-2', 3: 'lg:grid-rows-3' }
+  const columns = { 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4' }
 
   return (
     <div
       className={cx(
-        'grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4',
+        'grid grid-cols-2 gap-3 sm:gap-4',
+        columns[cols] ?? columns[4],
         tracks[rows] ?? tracks[2],
         className
       )}

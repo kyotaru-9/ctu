@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cleaningRecordService } from '../../services/cleaningRecordService'
+import AuditLogCalendar from '../../features/audit/AuditLogCalendar'
 import { formatDate, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
 import {
   ActionButton,
@@ -28,6 +29,7 @@ import {
   TableCard,
 } from '../../components/ui'
 import {
+  biCalendar,
   biTrash,
 } from '../../utils/icons'
 
@@ -39,6 +41,16 @@ const STATUS_LABELS = {
 const STATUS_TONES = {
   pending: 'warn',
   completed: 'ok',
+}
+
+/** Local-time YYYY-MM-DD for a timestamp — matches the calendar's day keys. */
+function dayKeyOf(timestamp) {
+  if (!timestamp) return null
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return null
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
 }
 
 // Matches the w-48 / max-h-56 classes on the preview below
@@ -204,6 +216,12 @@ export default function AdminCleanArea() {
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [showDayPicker, setShowDayPicker] = useState(false)
+  const [viewDate, setViewDate] = useState(null)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  })
 
   const fetchRecords = useCallback(async () => {
     setLoading(true)
@@ -262,12 +280,24 @@ export default function AdminCleanArea() {
     }
   }
 
+  // Days with records, counted from the list already loaded — the calendar
+  // marks them the same way the audit log picker does, without a second query.
+  const dayCounts = useMemo(() => {
+    const counts = {}
+    for (const record of records) {
+      const key = dayKeyOf(record.submitted_at)
+      if (key) counts[key] = (counts[key] ?? 0) + 1
+    }
+    return counts
+  }, [records])
+
   const filteredRecords = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
-    if (!term) return records
+    return records.filter((record) => {
+      if (viewDate && dayKeyOf(record.submitted_at) !== viewDate) return false
+      if (!term) return true
 
-    return records.filter((record) =>
-      [
+      return [
         record.section?.section_name,
         record.section?.program,
         record.area?.name,
@@ -275,14 +305,19 @@ export default function AdminCleanArea() {
       ]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(term))
-    )
-  }, [records, searchTerm])
+    })
+  }, [records, searchTerm, viewDate])
 
   return (
     <>
       <PageHeader
         title="Clean Area Records"
         subtitle="View submitted before/after photos for rotational cleaning assignments."
+        actions={
+          <Button variant="secondary" icon={biCalendar} onClick={() => setShowDayPicker(true)}>
+            Filter by date
+          </Button>
+        }
       />
 
       {error && (
@@ -291,9 +326,24 @@ export default function AdminCleanArea() {
         </Alert>
       )}
 
+      {viewDate && (
+        <Alert
+          tone="info"
+          className="mb-5"
+          onDismiss={() => setViewDate(null)}
+          title={`Showing ${formatDate(viewDate)} only`}
+        >
+          Cleaning records submitted on this day.
+        </Alert>
+      )}
+
       <TableCard
         title="All records"
-        subtitle={`${filteredRecords.length} of ${records.length} shown`}
+        subtitle={
+          viewDate
+            ? `${filteredRecords.length} record${filteredRecords.length === 1 ? '' : 's'} on this day`
+            : `${filteredRecords.length} of ${records.length} shown`
+        }
         search={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Search section, area, floor…"
@@ -460,14 +510,47 @@ export default function AdminCleanArea() {
         )}
       </Modal>
 
+      {/* Day picker — same calendar the audit log browser uses, with the days
+          that hold cleaning records marked by count. */}
+      <Modal
+        open={showDayPicker}
+        onClose={() => setShowDayPicker(false)}
+        title="Filter records by date"
+        size="md"
+        footer={
+          <Button variant="secondary" onClick={() => setShowDayPicker(false)}>
+            Cancel
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-ink-muted">
+            Pick a day to show only the cleaning records submitted on it. Days with records are
+            marked with a count.
+          </p>
+
+          <AuditLogCalendar
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            counts={dayCounts}
+            selected={[]}
+            onSelect={() => {}}
+            onPickDay={(day) => {
+              setShowDayPicker(false)
+              setViewDate(day)
+            }}
+          />
+        </div>
+      </Modal>
+
       {/* Delete confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
         title="Delete cleaning record"
-        message={`Are you sure you want to delete this cleaning record? This action cannot be undone.`}
+        description={`Are you sure you want to delete this cleaning record? This action cannot be undone.`}
         confirmLabel="Delete"
         tone="bad"
-        onCancel={closeDeleteDialog}
+        onClose={closeDeleteDialog}
         onConfirm={handleDelete}
         loading={deleting}
       />

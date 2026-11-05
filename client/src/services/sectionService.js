@@ -11,6 +11,15 @@ export const sectionService = {
     return response.data
   },
 
+  /**
+   * Aggregated activity for a section — schedules, occupations, submissions
+   * and reports broken down by reason — for the admin overview modal.
+   */
+  async getStats(id, params = {}) {
+    const response = await api.get(`/admin/sections/${id}/stats`, { params })
+    return response.data
+  },
+
   async create(data) {
     const response = await api.post('/admin/sections', data)
     return response.data

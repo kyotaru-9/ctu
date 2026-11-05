@@ -1,19 +1,17 @@
 import api from './api'
+import { authStorage } from './authStorage'
 
 export const authService = {
-  async login(email, password) {
+  async login(email, password, remember = true) {
     const response = await api.post('/auth/login', { email, password })
     if (!response.data.success) {
       throw new Error(response.data.message || 'Invalid email or password')
     }
     if (response.data.data?.access_token) {
-      localStorage.setItem('access_token', response.data.data.access_token)
-      if (response.data.data.refresh_token) {
-        localStorage.setItem('refresh_token', response.data.data.refresh_token)
-      }
-      if (response.data.data.user) {
-        localStorage.setItem('user_profile', JSON.stringify(response.data.data.user))
-      }
+      authStorage.saveSession(response.data.data, remember)
+      // A different account may be signing in on this browser; cached reads
+      // are scoped per user, but clearing keeps the switch airtight.
+      api.clearCache?.()
     }
     return response.data.data
   },
@@ -22,15 +20,14 @@ export const authService = {
     try {
       await api.post('/auth/logout')
     } finally {
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
-      localStorage.removeItem('user_profile')
+      authStorage.clear()
+      api.clearCache?.()
     }
   },
 
   getUserProfile() {
     try {
-      const profile = localStorage.getItem('user_profile')
+      const profile = authStorage.getItem('user_profile')
       return profile ? JSON.parse(profile) : null
     } catch {
       return null
@@ -43,20 +40,26 @@ export const authService = {
   },
 
   async getCurrentUser() {
-    const token = localStorage.getItem('access_token')
+    const token = authStorage.getItem('access_token')
     if (!token) return null
-    
+
     const response = await api.get('/auth/me')
     return response.data.data
   },
 
   async refreshToken() {
-    const refreshToken = localStorage.getItem('refresh_token')
+    const refreshToken = authStorage.getItem('refresh_token')
     if (!refreshToken) throw new Error('No refresh token')
-    
+
     const response = await api.post('/auth/refresh', { refresh_token: refreshToken })
     if (response.data.success && response.data.data?.access_token) {
-      localStorage.setItem('access_token', response.data.data.access_token)
+      authStorage.setItem('access_token', response.data.data.access_token)
+      // Same rotation as the axios interceptor: the refresh token that was
+      // just spent is revoked, so store the replacement or the next refresh
+      // logs the user out.
+      if (response.data.data.refresh_token) {
+        authStorage.setItem('refresh_token', response.data.data.refresh_token)
+      }
     }
     return response.data.data
   }

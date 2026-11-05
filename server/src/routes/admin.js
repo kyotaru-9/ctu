@@ -301,6 +301,204 @@ router.get('/sections/:id', async (req, res) => {
   }
 })
 
+/**
+ * Aggregates everything recorded against a section for the admin overview
+ * modal: schedules, occupations, submissions split by type, and reports —
+ * the violations students file — broken down by reason and status. The reason
+ * breakdown is grouped here rather than in the client so the modal renders
+ * whatever the table holds without re-deriving it per row.
+ */
+router.get('/sections/:id/stats', async (req, res) => {
+  try {
+    const sectionId = req.params.id
+    // Optional ?date=YYYY-MM-DD narrows occupations, submissions and reports to
+    // that day; schedules and the compliance record are point-in-time totals
+    // and stay unfiltered.
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null
+    const nextDay = date
+      ? new Date(new Date(`${date}T00:00:00`).getTime() + 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10)
+      : null
+
+    const countFor = (table) =>
+      supabaseAdmin
+        .from(table)
+        .select('id', { count: 'exact', head: true })
+        .eq('section_id', sectionId)
+
+    const scopedSubmissions = (type) => {
+      let query = supabaseAdmin
+        .from('room_submissions')
+        .select('id', { count: 'exact', head: true })
+        .eq('section_id', sectionId)
+        .eq('submission_type', type)
+      if (date) {
+        query = query.gte('submitted_at', `${date}T00:00:00`).lt('submitted_at', `${nextDay}T00:00:00`)
+      }
+      return query
+    }
+
+    const reportsQuery = supabaseAdmin
+      .from('reports')
+      .select('status, reason:report_reasons(name)')
+      .eq('section_id', sectionId)
+    if (date) {
+      reportsQuery.gte('reported_at', `${date}T00:00:00`).lt('reported_at', `${nextDay}T00:00:00`)
+    }
+
+    // Occupation rows are fetched rather than counted so the modal can show a
+    // status breakdown and the full record list from the same read. The date
+    // filter applies in JS here because occupation_date is a DATE, not a
+    // timestamp range.
+    const occupationsQuery = supabaseAdmin
+      .from('occupations')
+      .select('id, status, occupation_date')
+      .eq('section_id', sectionId)
+
+    const occupationsListQuery = supabaseAdmin
+      .from('occupations')
+      .select('id, occupation_date, status, started_at, ended_at, room:rooms(room_code), schedule:schedules(subject_name)')
+      .eq('section_id', sectionId)
+      .order('occupation_date', { ascending: false })
+      .order('started_at', { ascending: false })
+    if (date) occupationsListQuery.eq('occupation_date', date)
+
+    const cleaningQuery = supabaseAdmin
+      .from('cleaning_records')
+      .select('status, submitted_at')
+      .eq('section_id', sectionId)
+    if (date) {
+      cleaningQuery.gte('submitted_at', `${date}T00:00:00`).lt('submitted_at', `${nextDay}T00:00:00`)
+    }
+
+    const cleaningListQuery = supabaseAdmin
+      .from('cleaning_records')
+      .select('id, status, submitted_at, area:areas(name, floor)')
+      .eq('section_id', sectionId)
+      .order('submitted_at', { ascending: false })
+    if (date) {
+      cleaningListQuery
+        .gte('submitted_at', `${date}T00:00:00`)
+        .lt('submitted_at', `${nextDay}T00:00:00`)
+    }
+
+    const excusesQuery = supabaseAdmin
+      .from('excuse_requests')
+      .select('status, excuse_date')
+      .eq('section_id', sectionId)
+    if (date) excusesQuery.eq('excuse_date', date)
+
+    const [
+      schedules,
+      occupationsRes,
+      occupationsListRes,
+      beforeSubmissions,
+      afterSubmissions,
+      reportsRes,
+      cleaningRes,
+      cleaningListRes,
+      excusesRes,
+      complianceRes,
+    ] = await Promise.all([
+      countFor('schedules'),
+      occupationsQuery,
+      occupationsListQuery,
+      scopedSubmissions('before'),
+      scopedSubmissions('after'),
+      reportsQuery,
+      cleaningQuery,
+      cleaningListQuery,
+      excusesQuery,
+      supabaseAdmin
+        .from('compliance_records')
+        .select('*')
+        .eq('section_id', sectionId)
+        .order('period_end', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ])
+
+    for (const result of [
+      schedules,
+      occupationsRes,
+      occupationsListRes,
+      beforeSubmissions,
+      afterSubmissions,
+      reportsRes,
+      cleaningRes,
+      cleaningListRes,
+      excusesRes,
+      complianceRes,
+    ]) {
+      if (result.error) throw result.error
+    }
+
+    const occupationRows = (occupationsRes.data ?? []).filter(
+      (row) => !date || row.occupation_date === date
+    )
+    const occupationsByStatus = {}
+    for (const row of occupationRows) {
+      occupationsByStatus[row.status] = (occupationsByStatus[row.status] ?? 0) + 1
+    }
+
+    const byStatus = {}
+    const byReason = {}
+    for (const report of reportsRes.data ?? []) {
+      byStatus[report.status] = (byStatus[report.status] ?? 0) + 1
+      const reason = report.reason?.name || 'Unspecified'
+      byReason[reason] = (byReason[reason] ?? 0) + 1
+    }
+
+    const cleaningByStatus = {}
+    for (const record of cleaningRes.data ?? []) {
+      cleaningByStatus[record.status] = (cleaningByStatus[record.status] ?? 0) + 1
+    }
+
+    const excusesByStatus = {}
+    for (const request of excusesRes.data ?? []) {
+      excusesByStatus[request.status] = (excusesByStatus[request.status] ?? 0) + 1
+    }
+
+    res.json({
+      success: true,
+      data: {
+        date,
+        schedules: schedules.count ?? 0,
+        occupations: {
+          total: occupationRows.length,
+          byStatus: occupationsByStatus,
+          list: occupationsListRes.data ?? [],
+        },
+        submissions: {
+          before: beforeSubmissions.count ?? 0,
+          after: afterSubmissions.count ?? 0,
+          total: (beforeSubmissions.count ?? 0) + (afterSubmissions.count ?? 0),
+        },
+        reports: {
+          total: (reportsRes.data ?? []).length,
+          byStatus,
+          byReason: Object.entries(byReason)
+            .map(([reason, count]) => ({ reason, count }))
+            .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)),
+        },
+        cleaning: {
+          total: (cleaningRes.data ?? []).length,
+          byStatus: cleaningByStatus,
+          records: cleaningListRes.data ?? [],
+        },
+        excuses: {
+          total: (excusesRes.data ?? []).length,
+          byStatus: excusesByStatus,
+        },
+        compliance: complianceRes.data ?? null,
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load section stats' })
+  }
+})
+
 router.put('/sections/:id', async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin.from('sections').update(req.body).eq('id', req.params.id).select().single()
@@ -1469,18 +1667,31 @@ router.put('/educators/:id', async (req, res) => {
   }
 })
 
+/**
+ * Permanently deletes an educator.
+ *
+ * schedules.educator_id is ON DELETE SET NULL, so classes already assigned to
+ * this educator keep their schedule rows and simply stop naming an educator —
+ * the same trade-off the schedule delete makes with occupations. To take an
+ * educator off the active picker without ending the link, use the toggle.
+ */
 router.delete('/educators/:id', async (req, res) => {
   try {
+    // PostgREST reports a delete that matched nothing as an empty result rather
+    // than an error, hence maybeSingle.
     const { data, error } = await supabaseAdmin
       .from('educators')
-      .update({ is_active: false })
+      .delete()
       .eq('id', req.params.id)
-      .select()
-      .single()
+      .select('id')
+      .maybeSingle()
     if (error) throw error
-    res.json({ success: true, message: 'Educator deactivated' })
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Educator not found' })
+    }
+    res.json({ success: true, message: 'Educator deleted' })
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Failed to deactivate educator' })
+    res.status(500).json({ success: false, message: 'Failed to delete educator' })
   }
 })
 
@@ -1622,6 +1833,59 @@ router.get('/occupations/:id', async (req, res) => {
   }
 })
 
+/**
+ * Counts what an occupation delete takes with it.
+ *
+ * room_submissions.occupation_id is ON DELETE CASCADE, so the before/after
+ * submissions and their photos are destroyed with the record. reports.
+ * occupation_id is ON DELETE SET NULL instead, so reports filed against it
+ * survive and only lose the link — nothing is counted for them here because
+ * nothing is deleted.
+ */
+router.get('/occupations/:id/impact', async (req, res) => {
+  try {
+    const { count, error } = await supabaseAdmin
+      .from('room_submissions')
+      .select('id', { count: 'exact', head: true })
+      .eq('occupation_id', req.params.id)
+
+    if (error) throw error
+
+    res.json({ success: true, data: { submissions: count ?? 0 } })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to check what this occupation owns' })
+  }
+})
+
+/**
+ * Permanently deletes an occupation record.
+ *
+ * A real delete, not a status change: the row, its before/after submissions
+ * and their photos all go. Reports filed against it are kept, unlinked, per
+ * the schema's ON DELETE SET NULL.
+ */
+router.delete('/occupations/:id', async (req, res) => {
+  try {
+    // PostgREST reports a delete that matched nothing as an empty result rather
+    // than an error, hence maybeSingle.
+    const { data, error } = await supabaseAdmin
+      .from('occupations')
+      .delete()
+      .eq('id', req.params.id)
+      .select('id')
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Occupation not found' })
+    }
+
+    res.json({ success: true, message: 'Occupation deleted' })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete occupation' })
+  }
+})
+
 // Reports
 // Aliased so the embeds land on `section`/`room`, which is what the admin
 // reports table and modal read. Unaliased embeds come back plural, so the Room
@@ -1689,11 +1953,43 @@ router.put('/report-reasons/:id', async (req, res) => {
   }
 })
 
+/**
+ * Deletes a report reason for good. reports.reason_id is ON DELETE RESTRICT,
+ * so a reason that reports still point at cannot be removed — in that case the
+ * delete falls back to deactivating it, which hides it from the student report
+ * form while keeping the historical reports readable.
+ */
 router.delete('/report-reasons/:id', async (req, res) => {
   try {
-    const { error } = await supabaseAdmin.from('report_reasons').update({ is_active: false }).eq('id', req.params.id)
-    if (error) throw error
-    res.json({ success: true, message: 'Report reason deactivated' })
+    const { data, error } = await supabaseAdmin
+      .from('report_reasons')
+      .delete()
+      .eq('id', req.params.id)
+      .select('id')
+      .maybeSingle()
+
+    if (error) {
+      // 23503 is Postgres's foreign_key_violation.
+      if (error.code === '23503') {
+        const { error: deactivateError } = await supabaseAdmin
+          .from('report_reasons')
+          .update({ is_active: false })
+          .eq('id', req.params.id)
+        if (deactivateError) throw deactivateError
+        return res.json({
+          success: true,
+          message: 'Reason is used by existing reports, so it was deactivated instead',
+          data: { deactivated: true },
+        })
+      }
+      throw error
+    }
+
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Report reason not found' })
+    }
+
+    res.json({ success: true, message: 'Report reason deleted' })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to delete report reason' })
   }

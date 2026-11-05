@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { occupationService } from '../../services/occupationService'
+import AuditLogCalendar from '../../features/audit/AuditLogCalendar'
+import { biCalendar, biTrash } from '../../utils/icons'
 import { formatDate, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
 import {
   ActionButton,
@@ -12,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
   CONDITION,
+  ConfirmDialog,
   DetailList,
   EmptyState,
   LoadingBlock,
@@ -218,6 +221,16 @@ export default function AdminOccupations() {
   const [detailError, setDetailError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteImpact, setDeleteImpact] = useState(null)
+  const [impactLoading, setImpactLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [showDayPicker, setShowDayPicker] = useState(false)
+  const [viewDate, setViewDate] = useState(null)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  })
 
   const fetchOccupations = useCallback(async () => {
     setLoading(true)
@@ -267,12 +280,80 @@ export default function AdminOccupations() {
     setDetailLoading(false)
   }, [])
 
+  /**
+   * Opens the confirmation with the cascade cost already counted, so the dialog
+   * can name the submissions that are about to go rather than gesturing at
+   * them.
+   */
+  async function openDeleteDialog(occupation) {
+    setDeleteTarget(occupation)
+    setDeleteImpact(null)
+    setError('')
+    setImpactLoading(true)
+    try {
+      const response = await occupationService.getDeleteImpact(occupation.id)
+      if (response.success) {
+        setDeleteImpact(response.data)
+      } else {
+        setError(response.message || 'Could not check what this occupation owns')
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Could not check what this occupation owns')
+    } finally {
+      setImpactLoading(false)
+    }
+  }
+
+  function closeDeleteDialog() {
+    setDeleteTarget(null)
+    setDeleteImpact(null)
+    setImpactLoading(false)
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    setError('')
+    try {
+      const response = await occupationService.delete(deleteTarget.id)
+      if (!response.success) {
+        setError(response.message || 'Failed to delete occupation')
+        return
+      }
+      closeDeleteDialog()
+      if (selected?.id === deleteTarget.id) closeDetails()
+      await fetchOccupations()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete occupation')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const deleteTargetLabel = deleteTarget
+    ? [formatDate(deleteTarget.occupation_date), sectionLabel(deleteTarget.section), deleteTarget.room?.room_code]
+        .filter(Boolean)
+        .join(' · ')
+    : ''
+
+  // Days with records, counted from the list already loaded — the calendar
+  // marks them the same way the audit log picker does, without a second query.
+  const dayCounts = useMemo(() => {
+    const counts = {}
+    for (const occupation of occupations) {
+      const key = occupation.occupation_date
+      if (key) counts[key] = (counts[key] ?? 0) + 1
+    }
+    return counts
+  }, [occupations])
+
   const filteredOccupations = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
-    if (!term) return occupations
+    return occupations.filter((occupation) => {
+      if (viewDate && occupation.occupation_date !== viewDate) return false
+      if (!term) return true
 
-    return occupations.filter((occupation) =>
-      [
+      return [
         occupation.section?.section_name,
         occupation.section?.program,
         occupation.room?.room_code,
@@ -280,12 +361,20 @@ export default function AdminOccupations() {
       ]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(term))
-    )
-  }, [occupations, searchTerm])
+    })
+  }, [occupations, searchTerm, viewDate])
 
   return (
     <>
-      <PageHeader title="Occupations" subtitle="View classroom occupation records" />
+      <PageHeader
+        title="Occupations"
+        subtitle="View classroom occupation records"
+        actions={
+          <Button variant="secondary" icon={biCalendar} onClick={() => setShowDayPicker(true)}>
+            Filter by date
+          </Button>
+        }
+      />
 
       {error && (
         <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
@@ -293,9 +382,24 @@ export default function AdminOccupations() {
         </Alert>
       )}
 
+      {viewDate && (
+        <Alert
+          tone="info"
+          className="mb-5"
+          onDismiss={() => setViewDate(null)}
+          title={`Showing ${formatDate(viewDate)} only`}
+        >
+          Occupation records recorded on this day.
+        </Alert>
+      )}
+
       <TableCard
         title="Occupation records"
-        subtitle={`${filteredOccupations.length} of ${occupations.length} shown`}
+        subtitle={
+          viewDate
+            ? `${filteredOccupations.length} record${filteredOccupations.length === 1 ? '' : 's'} on this day`
+            : `${filteredOccupations.length} of ${occupations.length} shown`
+        }
         search={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Search section, room, subject…"
@@ -352,12 +456,18 @@ export default function AdminOccupations() {
                     <StatusBadge map={OCCUPATION_STATUS} value={occupation.status} />
                   </TD>
                   <TD align="right">
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-1">
                       <ActionButton
                         text="View"
                         label="View occupation details"
                         tone="accent"
                         onClick={() => openDetails(occupation)}
+                      />
+                      <ActionButton
+                        icon={biTrash}
+                        label="Delete occupation"
+                        tone="bad"
+                        onClick={() => openDeleteDialog(occupation)}
                       />
                     </div>
                   </TD>
@@ -432,9 +542,9 @@ export default function AdminOccupations() {
                 </div>
               </Card>
 
-              {/* Subject card */}
-              <Card className="p-6">
-                <div className="space-y-4">
+              {/* Subject card - spans full width */}
+              <Card className="sm:col-span-3 p-6">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-ink-muted">Subject</p>
                     <p className="text-sm">{detail.schedule?.subject_name || '—'}</p>
@@ -446,19 +556,85 @@ export default function AdminOccupations() {
                 </div>
               </Card>
 
-              {/* Before submission - spans 2 columns */}
-              <div className="sm:col-span-2">
-                <SubmissionPanel title="Before class" submission={detail.before} />
-              </div>
-
-              {/* After submission - spans 2 columns */}
-              <div className="sm:col-span-2">
-                <SubmissionPanel title="After class" submission={detail.after} />
+              {/* Before and After submissions - same row, spans full width */}
+              <div className="sm:col-span-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <SubmissionPanel title="Before class" submission={detail.before} />
+                  <SubmissionPanel title="After class" submission={detail.after} />
+                </div>
               </div>
             </div>
           </div>
         )}
       </Modal>
+
+      {/* Day picker — same calendar the audit log browser uses, with the days
+          that hold occupation records marked by count. */}
+      <Modal
+        open={showDayPicker}
+        onClose={() => setShowDayPicker(false)}
+        title="Filter occupations by date"
+        size="md"
+        footer={
+          <Button variant="secondary" onClick={() => setShowDayPicker(false)}>
+            Cancel
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-ink-muted">
+            Pick a day to show only the occupation records recorded on it. Days with records are
+            marked with a count.
+          </p>
+
+          <AuditLogCalendar
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            counts={dayCounts}
+            selected={[]}
+            onSelect={() => {}}
+            onPickDay={(day) => {
+              setShowDayPicker(false)
+              setViewDate(day)
+            }}
+          />
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={closeDeleteDialog}
+        onConfirm={handleDelete}
+        loading={deleting}
+        title="Delete occupation"
+        description={
+          deleteTarget
+            ? `Permanently delete the occupation record for ${deleteTargetLabel}? Its before and after submissions and photos are deleted with it. Reports filed against it are kept.`
+            : ''
+        }
+        confirmLabel="Delete permanently"
+      >
+        {impactLoading ? (
+          <p className="mt-3 text-sm text-ink-muted">Checking what this occupation owns…</p>
+        ) : (
+          deleteImpact &&
+          (deleteImpact.submissions > 0 ? (
+            <div className="mt-4 rounded-md border border-bad/30 bg-bad-soft p-3">
+              <p className="text-xs font-semibold tracking-wide text-bad uppercase">Also deleted</p>
+              <ul className="mt-2 flex flex-col gap-1">
+                <li className="text-sm text-ink">
+                  {deleteImpact.submissions} room submission{deleteImpact.submissions === 1 ? '' : 's'}
+                </li>
+              </ul>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-ink-muted">
+              This occupation has no before or after submissions, so deleting it takes nothing else
+              with it.
+            </p>
+          ))
+        )}
+      </ConfirmDialog>
     </>
   )
 }

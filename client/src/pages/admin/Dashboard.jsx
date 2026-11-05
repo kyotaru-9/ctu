@@ -2,49 +2,56 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { analyticsService } from '../../services/analyticsService'
+import { excuseService } from '../../services/excuseService'
 import { occupationService } from '../../services/occupationService'
+import { reportService } from '../../services/reportService'
+import { formatDate } from '../../lib/format'
 import {
-  biCalendar,
   biClipboard,
-  biDoorOpen,
   biExclamation,
-  biGraph,
-  biJournal,
-  biPeople,
-  biSettings,
 } from '../../utils/icons'
 import {
-  BentoGrid,
-  Card,
-  CardBody,
-  CardTitle,
   IconTile,
   PageHeader,
   Progress,
-  SkeletonBento,
   SkeletonPage,
   SkeletonPanel,
   StatCard,
 } from '../../components/ui'
 
-const quickActions = [
-  { label: 'Manage Sections', to: '/admin/students', icon: biPeople },
-  { label: 'Manage Rooms', to: '/admin/rooms', icon: biDoorOpen },
-  { label: 'Manage Schedules', to: '/admin/schedules', icon: biCalendar },
-  { label: 'View Occupations', to: '/admin/occupations', icon: biClipboard },
-  { label: 'View Reports', to: '/admin/reports', icon: biExclamation },
-  { label: 'Analytics', to: '/admin/analytics', icon: biGraph },
-  { label: 'Audit Logs', to: '/admin/audit-logs', icon: biJournal },
-  { label: 'Settings', to: '/admin/settings', icon: biSettings },
-]
-
 const EMPTY_STATS = {
-  totalSections: 0,
-  totalRooms: 0,
   todaysOccupations: 0,
   completed: 0,
   pending: 0,
   reports: 0,
+  pendingReports: 0,
+  pendingExcuses: 0,
+}
+
+/**
+ * A queue an admin has to clear, surfaced on the dashboard rather than buried
+ * in a list page. The count is the number waiting, and the whole tile links to
+ * the filtered view that resolves it.
+ */
+function AttentionTile({ to, icon, tone, title, description, count, waitingLabel }) {
+  return (
+    <Link
+      to={to}
+      className="group flex items-center gap-4 rounded-lg border border-line bg-surface p-4 transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm"
+    >
+      <IconTile icon={icon} tone={tone} size="md" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-ink">{title}</span>
+        <span className="mt-0.5 block truncate text-xs text-ink-muted">{description}</span>
+      </span>
+      <span className="text-right">
+        <span className="block text-xl font-semibold tabular text-ink">{count}</span>
+        <span className="block text-[0.6875rem] tracking-wide text-ink-subtle uppercase">
+          {waitingLabel}
+        </span>
+      </span>
+    </Link>
+  )
 }
 
 export default function AdminDashboard() {
@@ -57,21 +64,24 @@ export default function AdminDashboard() {
 
     async function fetchDashboardData() {
       try {
-        const [overview, occupations] = await Promise.all([
+        const [overview, occupations, reports, pendingExcuses] = await Promise.all([
           analyticsService.getOverview(),
           occupationService.getAll({ date: new Date().toISOString().split('T')[0] }),
+          reportService.getAll(),
+          excuseService.getAll('pending'),
         ])
         if (cancelled) return
 
         if (overview.success && occupations.success) {
           const todayOccupations = occupations.data || []
+          const allReports = reports.success ? reports.data || [] : []
           setStats({
-            totalSections: overview.data?.totalSections || 0,
-            totalRooms: overview.data?.totalRooms || 0,
             todaysOccupations: todayOccupations.length,
             completed: todayOccupations.filter((item) => item.status === 'completed').length,
             pending: todayOccupations.filter((item) => item.status === 'active').length,
-            reports: overview.data?.totalReports || 0,
+            reports: overview.data?.totalReports || allReports.length,
+            pendingReports: allReports.filter((report) => report.status === 'pending').length,
+            pendingExcuses: pendingExcuses.success ? (pendingExcuses.data || []).length : 0,
           })
         }
       } catch {
@@ -91,31 +101,26 @@ export default function AdminDashboard() {
     <>
       <PageHeader
         title="Dashboard"
-        subtitle={`Welcome back, ${user?.full_name || 'Administrator'}`}
+        subtitle={`Welcome back, ${user?.full_name || 'Administrator'} · ${formatDate(new Date())}`}
       />
 
       {loading ? (
         <SkeletonPage>
-          <SkeletonBento
-            rows={3}
-            cells={[
-              'col-span-2 row-span-2',
-              '',
-              '',
-              '',
-              '',
-              'col-span-2 lg:col-span-4',
-            ]}
-            className="mb-8"
-          />
-          <SkeletonPanel lines={5} />
+          <div className="mb-8 grid gap-4 lg:grid-cols-3">
+            <SkeletonPanel lines={4} className="lg:col-span-2" />
+            <SkeletonPanel lines={4} />
+          </div>
+          <SkeletonPanel lines={3} />
         </SkeletonPage>
       ) : (
         <>
-          <BentoGrid rows={3} className="mb-8">
+          {/* Only the numbers that change what the admin does next: how much of
+              today is done, and how much review work is queued. The breakdown
+              numbers live in the hint and the attention tiles below. */}
+          <div className="mb-8 grid gap-4 lg:grid-cols-3">
             <StatCard
               variant="feature"
-              className="col-span-2 row-span-2"
+              className="lg:col-span-2"
               label="Today's Occupations"
               value={stats.todaysOccupations}
               hint={`${stats.completed} completed · ${stats.pending} in progress`}
@@ -128,34 +133,37 @@ export default function AdminDashboard() {
                 />
               }
             />
-            <StatCard label="Completed" value={stats.completed} />
-            <StatCard label="In Progress" value={stats.pending} />
-            <StatCard label="Total Sections" value={stats.totalSections} />
-            <StatCard label="Total Rooms" value={stats.totalRooms} />
             <StatCard
-              className="col-span-2 lg:col-span-4"
               label="Reports"
               value={stats.reports}
+              hint={`${stats.pendingReports} awaiting review`}
             />
-          </BentoGrid>
+          </div>
 
-          <Card>
-            <CardBody>
-              <CardTitle className="mb-4">Quick actions</CardTitle>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                {quickActions.map((action) => (
-                  <Link
-                    key={action.to}
-                    to={action.to}
-                    className="group flex min-h-24 flex-col items-center justify-center gap-2.5 rounded-lg border border-line bg-surface p-4 text-center transition-[border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-sm"
-                  >
-                    <IconTile icon={action.icon} tone="accent" size="sm" />
-                    <span className="text-sm font-medium text-ink">{action.label}</span>
-                  </Link>
-                ))}
-              </div>
-            </CardBody>
-          </Card>
+          <div className="mb-8">
+            <h2 className="mb-3 text-sm font-semibold text-ink">Needs attention</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <AttentionTile
+                to="/admin/excuse-requests"
+                icon={biClipboard}
+                tone={stats.pendingExcuses > 0 ? 'warn' : 'ok'}
+                title="Excuse requests"
+                description="Student exemption requests awaiting a decision"
+                count={stats.pendingExcuses}
+                waitingLabel="pending"
+              />
+              <AttentionTile
+                to="/admin/reports"
+                icon={biExclamation}
+                tone={stats.pendingReports > 0 ? 'warn' : 'ok'}
+                title="Room reports"
+                description="Cleanliness and damage reports awaiting review"
+                count={stats.pendingReports}
+                waitingLabel="pending"
+              />
+            </div>
+          </div>
+
         </>
       )}
     </>

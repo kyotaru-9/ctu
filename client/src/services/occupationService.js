@@ -19,6 +19,16 @@ export const occupationService = {
     return response.data
   },
 
+  async getDeleteImpact(id) {
+    const response = await api.get(`/admin/occupations/${id}/impact`)
+    return response.data
+  },
+
+  async delete(id) {
+    const response = await api.delete(`/admin/occupations/${id}`)
+    return response.data
+  },
+
   async create(data) {
     const prefix = getRolePrefix()
     const response = await api.post(`${prefix}/occupations`, data)

@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { authStorage } from './authStorage'
 
 const api = axios.create({
   baseURL: '/api',
@@ -6,6 +7,42 @@ const api = axios.create({
     'Content-Type': 'application/json'
   }
 })
+
+/*
+ * GET response cache.
+ *
+ * Pages refetch their lists every time they mount, which means navigating
+ * away and back — or any re-render that remounts the page — hits the API
+ * again for data that has not changed. Caching the response for a short TTL
+ * makes a revisit free while still picking up changes made elsewhere within
+ * the window.
+ *
+ * Two rules keep it correct:
+ *   - any non-GET request clears the whole cache, so a create/update/delete
+ *     is always followed by fresh reads;
+ *   - entries are keyed by the signed-in user, so one account's cached data
+ *     can never be served to the next account on the same browser.
+ *
+ * A caller can bypass the cache per request with `{ cache: false }`, and
+ * `api.clearCache()` forces every read to go to the server.
+ */
+const GET_CACHE_TTL_MS = 60_000
+const getCache = new Map()
+
+function cacheScope() {
+  try {
+    const profile = JSON.parse(authStorage.getItem('user_profile') || 'null')
+    return profile?.id || 'anonymous'
+  } catch {
+    return 'anonymous'
+  }
+}
+
+function getCacheKey(url, params) {
+  return `${cacheScope()}::${url}::${JSON.stringify(params ?? null)}`
+}
+
+api.clearCache = () => getCache.clear()
 
 let isRefreshing = false
 let failedQueue = []
@@ -22,7 +59,7 @@ const processQueue = (error, token = null) => {
 }
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token')
+  const token = authStorage.getItem('access_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -30,7 +67,14 @@ api.interceptors.request.use((config) => {
 })
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // A successful write means cached reads may now be stale, so the next GET
+    // goes to the server instead of serving pre-mutation data.
+    if (!['get', 'head', 'options'].includes(response.config?.method)) {
+      getCache.clear()
+    }
+    return response
+  },
   async (error) => {
     const originalRequest = error.config
 
@@ -53,14 +97,14 @@ api.interceptors.response.use(
       !isLoginRequest
 
     if (disabled) {
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
+      authStorage.removeItem('access_token')
+      authStorage.removeItem('refresh_token')
 
       // The redirect reloads the document, which drops router state. Stashing
       // what we know about the locked-out account lets the page still name the
       // section, which is the one thing the reader is asked to quote.
       try {
-        const profile = JSON.parse(localStorage.getItem('user_profile') || 'null')
+        const profile = JSON.parse(authStorage.getItem('user_profile') || 'null')
         if (profile) {
           const section = profile.section
           sessionStorage.setItem(
@@ -84,7 +128,8 @@ api.interceptors.response.use(
         // A missing or unreadable profile is not worth failing the redirect over.
       }
 
-      localStorage.removeItem('user_profile')
+      authStorage.removeItem('user_profile')
+      getCache.clear()
 
       if (window.location.pathname !== '/account-deactivated') {
         window.location.href = '/account-deactivated'
@@ -92,7 +137,16 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Login and refresh failures are not token-expiry cases: the login page
+    // shows the server's message itself, and a failed refresh has no token to
+    // refresh with. Handling either here would reload the page via the catch
+    // below and lose that.
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !isLoginRequest &&
+      !originalRequest?.url?.includes('/auth/refresh')
+    ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject })
@@ -108,7 +162,7 @@ api.interceptors.response.use(
       isRefreshing = true
       
       try {
-        const refreshToken = localStorage.getItem('refresh_token')
+        const refreshToken = authStorage.getItem('refresh_token')
         if (!refreshToken) {
           throw new Error('No refresh token')
         }
@@ -119,7 +173,14 @@ api.interceptors.response.use(
         
         if (response.data.success && response.data.data?.access_token) {
           const newToken = response.data.data.access_token
-          localStorage.setItem('access_token', newToken)
+          authStorage.setItem('access_token', newToken)
+          // Supabase rotates refresh tokens on every refresh: the token that
+          // was just used is revoked, so the new one has to replace it here.
+          // Keeping the old one means the next refresh fails and the session
+          // is dropped even though the user never logged out.
+          if (response.data.data.refresh_token) {
+            authStorage.setItem('refresh_token', response.data.data.refresh_token)
+          }
           api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
           processQueue(null, newToken)
           originalRequest.headers.Authorization = `Bearer ${newToken}`
@@ -129,9 +190,8 @@ api.interceptors.response.use(
         throw new Error('Token refresh failed')
       } catch (err) {
         processQueue(err, null)
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('user_profile')
+        authStorage.clear()
+        getCache.clear()
         window.location.href = '/login'
         return Promise.reject(err)
       } finally {
@@ -142,5 +202,33 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+/*
+ * GET requests go through the cache above. The wrapped method sits on top of
+ * the interceptors, so a cache miss still gets the auth header and the 401
+ * refresh handling; only a hit short-circuits, and a hit needs no token
+ * because the data was fetched for this same signed-in user moments ago.
+ * Auth endpoints are never cached — /auth/me must always reflect the real
+ * session state.
+ */
+const rawGet = api.get.bind(api)
+api.get = async (url, config = {}) => {
+  if (config.cache === false || url.startsWith('/auth/')) {
+    return rawGet(url, config)
+  }
+
+  const key = getCacheKey(url, config.params)
+  const hit = getCache.get(key)
+  if (hit) {
+    if (hit.expiresAt > Date.now()) {
+      return { data: hit.data, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    getCache.delete(key)
+  }
+
+  const response = await rawGet(url, config)
+  getCache.set(key, { data: response.data, expiresAt: Date.now() + GET_CACHE_TTL_MS })
+  return response
+}
 
 export default api

@@ -1,8 +1,9 @@
 import { Logo } from './ui'
 
 /**
- * Shared frame for the signed-out pages: a light canvas, the CTU mark, and the
- * page's own content centred beneath it.
+ * Shared frame for the signed-out pages: a light canvas with a faint wash of
+ * the campus mark's colours, the CTU mark, and the page's own content centred
+ * beneath it.
  *
  * Deliberately only the mark. There is no wordmark and no campus line here —
  * the mark already spells CTU, and the pages that need the campus name pass it
@@ -17,8 +18,12 @@ import { Logo } from './ui'
  */
 export default function AuthShell({ children, footer, width = 'max-w-sm' }) {
   return (
-    <div className="flex min-h-dvh flex-col bg-canvas px-4 py-10">
-      <div className="flex flex-1 flex-col justify-center">
+    <div className="relative flex min-h-dvh flex-col bg-canvas px-4 py-10">
+      {/* Institutional wash behind everything: the campus mark's own gold,
+          blue and teal at low opacity, so the page stays light. */}
+      <div aria-hidden="true" className="auth-backdrop pointer-events-none absolute inset-0" />
+
+      <div className="relative flex flex-1 flex-col justify-center">
         <div className={`mx-auto w-full ${width}`}>
           <div className="mb-8 flex justify-center">
             <Logo size="2xl" />
@@ -29,7 +34,7 @@ export default function AuthShell({ children, footer, width = 'max-w-sm' }) {
       </div>
 
       {footer && (
-        <div className={`mx-auto w-full ${width} shrink-0`}>{footer}</div>
+        <div className={`relative mx-auto w-full ${width} shrink-0`}>{footer}</div>
       )}
     </div>
   )
