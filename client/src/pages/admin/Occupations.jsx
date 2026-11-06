@@ -2,10 +2,9 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { occupationService } from '../../services/occupationService'
 import AuditLogCalendar from '../../features/audit/AuditLogCalendar'
-import { biCalendar, biTrash } from '../../utils/icons'
+import { biCalendar, biCheckSquare, biTrash } from '../../utils/icons'
 import { formatDate, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
 import {
-  ActionButton,
   Alert,
   Badge,
   Button,
@@ -221,12 +220,12 @@ export default function AdminOccupations() {
   const [detailError, setDetailError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [deleteImpact, setDeleteImpact] = useState(null)
-  const [impactLoading, setImpactLoading] = useState(false)
-  const [deleting, setDeleting] = useState(false)
   const [showDayPicker, setShowDayPicker] = useState(false)
   const [viewDate, setViewDate] = useState(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
@@ -280,61 +279,61 @@ export default function AdminOccupations() {
     setDetailLoading(false)
   }, [])
 
-  /**
-   * Opens the confirmation with the cascade cost already counted, so the dialog
-   * can name the submissions that are about to go rather than gesturing at
-   * them.
-   */
-  async function openDeleteDialog(occupation) {
-    setDeleteTarget(occupation)
-    setDeleteImpact(null)
-    setError('')
-    setImpactLoading(true)
-    try {
-      const response = await occupationService.getDeleteImpact(occupation.id)
-      if (response.success) {
-        setDeleteImpact(response.data)
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelectedIds(new Set())
+      return !on
+    })
+  }
+
+  function toggleOccupationSelection(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectedOccupations = occupations.filter((occupation) => selectedIds.has(occupation.id))
+
+  function toggleAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (allVisibleSelected) {
+        filteredOccupations.forEach((occupation) => next.delete(occupation.id))
       } else {
-        setError(response.message || 'Could not check what this occupation owns')
+        filteredOccupations.forEach((occupation) => next.add(occupation.id))
       }
-    } catch (err) {
-      setError(err.response?.data?.message || 'Could not check what this occupation owns')
-    } finally {
-      setImpactLoading(false)
-    }
+      return next
+    })
   }
 
-  function closeDeleteDialog() {
-    setDeleteTarget(null)
-    setDeleteImpact(null)
-    setImpactLoading(false)
-  }
-
-  async function handleDelete() {
-    if (!deleteTarget) return
-    setDeleting(true)
+  /** Bulk delete — same per-record endpoint as before, run in parallel. Each
+      occupation's submissions are cascaded by the server, same as single delete. */
+  async function handleBulkDelete() {
+    setBulkSaving(true)
     setError('')
     try {
-      const response = await occupationService.delete(deleteTarget.id)
-      if (!response.success) {
-        setError(response.message || 'Failed to delete occupation')
-        return
+      const results = await Promise.allSettled(
+        selectedOccupations.map((occupation) => occupationService.delete(occupation.id))
+      )
+      const failed = results.filter(
+        (result) => result.status === 'rejected' || result.value?.success === false
+      ).length
+      if (failed > 0) {
+        setError(`${failed} of ${selectedOccupations.length} occupations could not be deleted.`)
       }
-      closeDeleteDialog()
-      if (selected?.id === deleteTarget.id) closeDetails()
+      setSelectedIds(new Set())
+      setBulkDeleteOpen(false)
+      if (selected && selectedIds.has(selected.id)) closeDetails()
       await fetchOccupations()
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete occupation')
+      setError(err.response?.data?.message || 'Failed to delete occupations')
     } finally {
-      setDeleting(false)
+      setBulkSaving(false)
     }
   }
-
-  const deleteTargetLabel = deleteTarget
-    ? [formatDate(deleteTarget.occupation_date), sectionLabel(deleteTarget.section), deleteTarget.room?.room_code]
-        .filter(Boolean)
-        .join(' · ')
-    : ''
 
   // Days with records, counted from the list already loaded — the calendar
   // marks them the same way the audit log picker does, without a second query.
@@ -364,15 +363,28 @@ export default function AdminOccupations() {
     })
   }, [occupations, searchTerm, viewDate])
 
+  const allVisibleSelected =
+    filteredOccupations.length > 0 &&
+    filteredOccupations.every((occupation) => selectedIds.has(occupation.id))
+
   return (
     <>
       <PageHeader
         title="Occupations"
         subtitle="View classroom occupation records"
         actions={
-          <Button variant="secondary" icon={biCalendar} onClick={() => setShowDayPicker(true)}>
-            Filter by date
-          </Button>
+          <>
+            <Button
+              variant={selectMode ? 'primary' : 'secondary'}
+              icon={biCheckSquare}
+              onClick={toggleSelectMode}
+            >
+              {selectMode ? 'Done' : 'Select'}
+            </Button>
+            <Button variant="secondary" icon={biCalendar} onClick={() => setShowDayPicker(true)}>
+              Filter by date
+            </Button>
+          </>
         }
       />
 
@@ -391,6 +403,21 @@ export default function AdminOccupations() {
         >
           Occupation records recorded on this day.
         </Alert>
+      )}
+
+      {selectMode && selectedOccupations.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3">
+          <span className="text-sm font-medium text-ink">{selectedOccupations.length} selected</span>
+          <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
+          <Button
+            size="sm"
+            variant="danger"
+            icon={biTrash}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            Delete
+          </Button>
+        </div>
       )}
 
       <TableCard
@@ -417,6 +444,17 @@ export default function AdminOccupations() {
           <Table>
             <THead>
               <tr>
+                {selectMode && (
+                  <TH className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all occupations"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                    />
+                  </TH>
+                )}
                 <TH>Date</TH>
                 <TH>Section</TH>
                 <TH>Room</TH>
@@ -426,12 +464,29 @@ export default function AdminOccupations() {
                 <TH>Before</TH>
                 <TH>After</TH>
                 <TH>Status</TH>
-                <TH align="right">Details</TH>
               </tr>
             </THead>
             <TBody>
               {filteredOccupations.map((occupation) => (
-                <TR key={occupation.id}>
+                <TR
+                  key={occupation.id}
+                  className={selectMode ? undefined : 'cursor-pointer'}
+                  title={selectMode ? undefined : 'View occupation details'}
+                  onClick={() =>
+                    selectMode ? toggleOccupationSelection(occupation.id) : openDetails(occupation)
+                  }
+                >
+                  {selectMode && (
+                    <TD onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select occupation ${occupation.id}`}
+                        checked={selectedIds.has(occupation.id)}
+                        onChange={() => toggleOccupationSelection(occupation.id)}
+                        className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                      />
+                    </TD>
+                  )}
                   <TD className="whitespace-nowrap">{formatDate(occupation.occupation_date)}</TD>
                   <TD className="font-medium">{sectionLabel(occupation.section)}</TD>
                   <TD className="tabular">{occupation.room?.room_code || '—'}</TD>
@@ -455,22 +510,6 @@ export default function AdminOccupations() {
                   <TD>
                     <StatusBadge map={OCCUPATION_STATUS} value={occupation.status} />
                   </TD>
-                  <TD align="right">
-                    <div className="flex justify-end gap-1">
-                      <ActionButton
-                        text="View"
-                        label="View occupation details"
-                        tone="accent"
-                        onClick={() => openDetails(occupation)}
-                      />
-                      <ActionButton
-                        icon={biTrash}
-                        label="Delete occupation"
-                        tone="bad"
-                        onClick={() => openDeleteDialog(occupation)}
-                      />
-                    </div>
-                  </TD>
                 </TR>
               ))}
             </TBody>
@@ -483,11 +522,6 @@ export default function AdminOccupations() {
         onClose={closeDetails}
         title="Occupation details"
         size="lg"
-        footer={
-          <Button variant="secondary" onClick={closeDetails}>
-            Close
-          </Button>
-        }
       >
         {selected && detail && (
           <div className="flex flex-col gap-4">
@@ -602,39 +636,14 @@ export default function AdminOccupations() {
       </Modal>
 
       <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        onClose={closeDeleteDialog}
-        onConfirm={handleDelete}
-        loading={deleting}
-        title="Delete occupation"
-        description={
-          deleteTarget
-            ? `Permanently delete the occupation record for ${deleteTargetLabel}? Its before and after submissions and photos are deleted with it. Reports filed against it are kept.`
-            : ''
-        }
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
+        loading={bulkSaving}
+        title={`Delete ${selectedOccupations.length} occupation${selectedOccupations.length === 1 ? '' : 's'}`}
+        description="Permanently delete the selected occupation records? Their before and after submissions and photos are deleted with them. Reports filed against them are kept."
         confirmLabel="Delete permanently"
-      >
-        {impactLoading ? (
-          <p className="mt-3 text-sm text-ink-muted">Checking what this occupation owns…</p>
-        ) : (
-          deleteImpact &&
-          (deleteImpact.submissions > 0 ? (
-            <div className="mt-4 rounded-md border border-bad/30 bg-bad-soft p-3">
-              <p className="text-xs font-semibold tracking-wide text-bad uppercase">Also deleted</p>
-              <ul className="mt-2 flex flex-col gap-1">
-                <li className="text-sm text-ink">
-                  {deleteImpact.submissions} room submission{deleteImpact.submissions === 1 ? '' : 's'}
-                </li>
-              </ul>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-ink-muted">
-              This occupation has no before or after submissions, so deleting it takes nothing else
-              with it.
-            </p>
-          ))
-        )}
-      </ConfirmDialog>
+      />
     </>
   )
 }

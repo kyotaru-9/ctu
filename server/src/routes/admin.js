@@ -1250,6 +1250,153 @@ router.post('/rooms/:id/regenerate-qr', async (req, res) => {
   }
 })
 
+/**
+ * Aggregates everything recorded against a room for the admin overview
+ * modal: schedules, occupations, submissions split by type, and reports —
+ * the same shape the section stats route returns, scoped by room_id. The
+ * optional ?date=YYYY-MM-DD narrows occupations, submissions and reports to
+ * that day; schedules are a point-in-time total and stay unfiltered.
+ */
+router.get('/rooms/:id/stats', async (req, res) => {
+  try {
+    const roomId = req.params.id
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null
+    const nextDay = date
+      ? new Date(new Date(`${date}T00:00:00`).getTime() + 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10)
+      : null
+
+    const countFor = (table) =>
+      supabaseAdmin
+        .from(table)
+        .select('id', { count: 'exact', head: true })
+        .eq('room_id', roomId)
+
+    const scopedSubmissions = (type) => {
+      let query = supabaseAdmin
+        .from('room_submissions')
+        .select('id', { count: 'exact', head: true })
+        .eq('room_id', roomId)
+        .eq('submission_type', type)
+      if (date) {
+        query = query.gte('submitted_at', `${date}T00:00:00`).lt('submitted_at', `${nextDay}T00:00:00`)
+      }
+      return query
+    }
+
+    const reportsQuery = supabaseAdmin
+      .from('reports')
+      .select('status, reason:report_reasons(name)')
+      .eq('room_id', roomId)
+    if (date) {
+      reportsQuery.gte('reported_at', `${date}T00:00:00`).lt('reported_at', `${nextDay}T00:00:00`)
+    }
+
+    const occupationsQuery = supabaseAdmin
+      .from('occupations')
+      .select('id, status, occupation_date')
+      .eq('room_id', roomId)
+
+    const occupationsListQuery = supabaseAdmin
+      .from('occupations')
+      .select('id, occupation_date, status, started_at, ended_at, section:sections(program, year_level, section_name), schedule:schedules(subject_name)')
+      .eq('room_id', roomId)
+      .order('occupation_date', { ascending: false })
+      .order('started_at', { ascending: false })
+    if (date) occupationsListQuery.eq('occupation_date', date)
+
+    // "Right now" is always today, independent of the optional ?date= filter —
+    // it answers whether the room is occupied this moment, not on the picked day.
+    const today = new Date().toISOString().split('T')[0]
+    const currentOccupationQuery = supabaseAdmin
+      .from('occupations')
+      .select('id, occupation_date, status, started_at, section:sections(program, year_level, section_name), schedule:schedules(subject_name)')
+      .eq('room_id', roomId)
+      .eq('occupation_date', today)
+      .eq('status', 'active')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const [
+      schedules,
+      occupationsRes,
+      occupationsListRes,
+      beforeSubmissions,
+      afterSubmissions,
+      reportsRes,
+      currentOccupationRes,
+    ] = await Promise.all([
+      countFor('schedules'),
+      occupationsQuery,
+      occupationsListQuery,
+      scopedSubmissions('before'),
+      scopedSubmissions('after'),
+      reportsQuery,
+      currentOccupationQuery,
+    ])
+
+    for (const result of [
+      schedules,
+      occupationsRes,
+      occupationsListRes,
+      beforeSubmissions,
+      afterSubmissions,
+      reportsRes,
+      currentOccupationRes,
+    ]) {
+      if (result.error) throw result.error
+    }
+
+    const occupationRows = (occupationsRes.data ?? []).filter(
+      (row) => !date || row.occupation_date === date
+    )
+    const occupationsByStatus = {}
+    for (const row of occupationRows) {
+      occupationsByStatus[row.status] = (occupationsByStatus[row.status] ?? 0) + 1
+    }
+
+    const byStatus = {}
+    const byReason = {}
+    for (const report of reportsRes.data ?? []) {
+      byStatus[report.status] = (byStatus[report.status] ?? 0) + 1
+      const reason = report.reason?.name || 'Unspecified'
+      byReason[reason] = (byReason[reason] ?? 0) + 1
+    }
+
+    res.json({
+      success: true,
+      data: {
+        date,
+        schedules: schedules.count ?? 0,
+        occupations: {
+          total: occupationRows.length,
+          byStatus: occupationsByStatus,
+          list: occupationsListRes.data ?? [],
+        },
+        submissions: {
+          before: beforeSubmissions.count ?? 0,
+          after: afterSubmissions.count ?? 0,
+          total: (beforeSubmissions.count ?? 0) + (afterSubmissions.count ?? 0),
+        },
+        reports: {
+          total: (reportsRes.data ?? []).length,
+          byStatus,
+          byReason: Object.entries(byReason)
+            .map(([reason, count]) => ({ reason, count }))
+            .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)),
+        },
+        current: {
+          occupiedBy: currentOccupationRes.data ?? null,
+        },
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load room stats' })
+  }
+})
+
 // Schedules
 // Aliased so the embed lands on `section`/`room`/`educator`, which is what the admin
 // schedule table, edit form and delete prompt all read.
@@ -1912,6 +2059,34 @@ router.get('/reports/:id', async (req, res) => {
   }
 })
 
+/**
+ * Permanently deletes reports by id — the batch bar's delete action.
+ * Body: { ids: [...] }, capped so a malformed request cannot sweep the table.
+ */
+router.delete('/reports', async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : []
+    const valid = [...new Set(ids.filter((id) => typeof id === 'string' && id.length > 0))]
+    if (!valid.length) {
+      return res.status(400).json({ success: false, message: 'At least one report id is required' })
+    }
+    if (valid.length > 500) {
+      return res.status(400).json({ success: false, message: 'Delete 500 reports or fewer at a time' })
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('reports')
+      .delete()
+      .in('id', valid)
+      .select('id')
+    if (error) throw error
+
+    res.json({ success: true, data, deleted: data?.length ?? 0 })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to delete reports' })
+  }
+})
+
 router.patch('/reports/:id/status', async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin.from('reports').update({ status: req.body.status, admin_note: req.body.admin_note, reviewed_at: new Date().toISOString(), reviewed_by: req.user.id }).eq('id', req.params.id).select().single()
@@ -1995,14 +2170,84 @@ router.delete('/report-reasons/:id', async (req, res) => {
   }
 })
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Optional ?dates=YYYY-MM-DD[,YYYY-MM-DD…]&offset=<minutes> narrows the report-
+ * and submission-driven analytics to the picked local calendar days — the same
+ * window math the audit log day view uses, so the days the admin picked are
+ * the days counted. `offset` is the client's UTC offset in minutes and is
+ * required alongside `dates`: bucketing in UTC would split a local day across
+ * two cells for anyone east or west of Greenwich. A single ?date= is still
+ * accepted for older callers.
+ *
+ * Each day becomes a { date, start, end } UTC window; endpoints combine them
+ * with dayWindowsOr into one PostgREST or() filter. Milliseconds are stripped
+ * from the window bounds because a dot inside an or() value can break parsing,
+ * and second precision is all a day boundary needs.
+ *
+ * Returns { days, offsetMinutes } or { error } — callers turn the error into a
+ * 400.
+ */
+function parseAnalyticsDays(req) {
+  const raw = req.query.dates ?? req.query.date
+  if (raw === undefined || raw === null || raw === '') return { days: [] }
+
+  const list = [
+    ...new Set(
+      (Array.isArray(raw) ? raw : String(raw).split(','))
+        .map((entry) => String(entry).trim())
+        .filter(Boolean)
+    ),
+  ]
+
+  const offsetMinutes = Number(req.query.offset)
+  const valid =
+    list.length > 0 &&
+    list.length <= 366 &&
+    list.every((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry)) &&
+    Number.isFinite(offsetMinutes) &&
+    Math.abs(offsetMinutes) <= 14 * 60
+  if (!valid) {
+    return { error: 'Up to 366 dates of YYYY-MM-DD and a valid UTC offset are required' }
+  }
+
+  const toIso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const days = list.map((date) => {
+    const startUtc = new Date(`${date}T00:00:00.000Z`).getTime() - offsetMinutes * 60_000
+    return { date, start: toIso(startUtc), end: toIso(startUtc + DAY_MS) }
+  })
+  return { days, offsetMinutes }
+}
+
+/** PostgREST or() clause covering each picked day's local window on `column`. */
+function dayWindowsOr(column, days) {
+  return days.map((day) => `and(${column}.gte.${day.start},${column}.lt.${day.end})`).join(',')
+}
+
 // Analytics
 router.get('/analytics/overview', async (req, res) => {
   try {
+    const parsed = parseAnalyticsDays(req)
+    if (parsed.error) {
+      return res.status(400).json({ success: false, message: parsed.error })
+    }
+    const { days } = parsed
+
+    const reportsQuery = supabaseAdmin.from('reports').select('id', { count: 'exact', head: true })
+    const submissionsQuery = supabaseAdmin
+      .from('room_submissions')
+      .select('id', { count: 'exact', head: true })
+    if (days.length) {
+      reportsQuery.or(dayWindowsOr('reported_at', days))
+      submissionsQuery.or(dayWindowsOr('submitted_at', days))
+    }
+
     const [sectionsRes, roomsRes, reportsRes, submissionsRes, complianceRes] = await Promise.all([
       supabaseAdmin.from('sections').select('id', { count: 'exact', head: true }).eq('is_active', true),
       supabaseAdmin.from('rooms').select('id', { count: 'exact', head: true }).eq('is_active', true),
-      supabaseAdmin.from('reports').select('id', { count: 'exact', head: true }),
-      supabaseAdmin.from('room_submissions').select('id', { count: 'exact', head: true }),
+      reportsQuery,
+      submissionsQuery,
       supabaseAdmin.from('compliance_records').select('compliance_rate')
     ])
     if (complianceRes.error) throw complianceRes.error
@@ -2031,10 +2276,27 @@ router.get('/analytics/overview', async (req, res) => {
 
 router.get('/analytics/sections', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const parsed = parseAnalyticsDays(req)
+    if (parsed.error) {
+      return res.status(400).json({ success: false, message: parsed.error })
+    }
+
+    let query = supabaseAdmin
       .from('compliance_records')
       .select('*, section:sections(id, program, year_level, section_name)')
       .order('period_start', { ascending: false })
+
+    // A compliance record covers a period rather than a day, so the day filter
+    // keeps the records whose period contains any picked date.
+    if (parsed.days.length) {
+      query = query.or(
+        parsed.days
+          .map((day) => `and(period_start.lte.${day.date},period_end.gte.${day.date})`)
+          .join(',')
+      )
+    }
+
+    const { data, error } = await query
     if (error) throw error
 
     // compliance_records keeps its totals under long column names. Renamed here
@@ -2066,9 +2328,19 @@ router.get('/analytics/sections', async (req, res) => {
 
 router.get('/analytics/rooms', async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const parsed = parseAnalyticsDays(req)
+    if (parsed.error) {
+      return res.status(400).json({ success: false, message: parsed.error })
+    }
+
+    let query = supabaseAdmin
       .from('reports')
       .select('room_id, reason:report_reasons(name), room:rooms(room_code)')
+    if (parsed.days.length) {
+      query = query.or(dayWindowsOr('reported_at', parsed.days))
+    }
+
+    const { data, error } = await query
     if (error) throw error
 
     // This used to return one row per report, so the panel could not rank rooms
@@ -2110,9 +2382,19 @@ router.get('/analytics/rooms', async (req, res) => {
 
 router.get('/analytics/reasons', async (req, res) => {
   try {
+    const parsed = parseAnalyticsDays(req)
+    if (parsed.error) {
+      return res.status(400).json({ success: false, message: parsed.error })
+    }
+
+    let reportsQuery = supabaseAdmin.from('reports').select('reason_id')
+    if (parsed.days.length) {
+      reportsQuery = reportsQuery.or(dayWindowsOr('reported_at', parsed.days))
+    }
+
     const [reasonsRes, reportsRes] = await Promise.all([
       supabaseAdmin.from('report_reasons').select('id, name').order('name'),
-      supabaseAdmin.from('reports').select('reason_id')
+      reportsQuery
     ])
     if (reasonsRes.error) throw reasonsRes.error
     if (reportsRes.error) throw reportsRes.error
@@ -2139,20 +2421,48 @@ router.get('/analytics/reasons', async (req, res) => {
 
 router.get('/analytics/trends', async (req, res) => {
   try {
-    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const parsed = parseAnalyticsDays(req)
+    if (parsed.error) {
+      return res.status(400).json({ success: false, message: parsed.error })
+    }
+    const { days, offsetMinutes } = parsed
+    const filtered = days.length > 0
+
+    // With picked days the rows are limited to their windows and the buckets
+    // are hours within each day; with none it stays the last 30 days bucketed
+    // by month.
+    const since = filtered
+      ? null
+      : new Date(Date.now() - 30 * DAY_MS).toISOString()
+    const bucketOf = filtered
+      ? (value) => {
+          const local = new Date(new Date(value).getTime() + offsetMinutes * 60_000).toISOString()
+          return `${local.slice(0, 10)} ${local.slice(11, 13)}:00`
+        }
+      : (value) => (value ? String(value).slice(0, 7) : null)
+
+    const scoped = (table, field) => {
+      let query = supabaseAdmin.from(table).select(field)
+      if (filtered) {
+        query = query.or(dayWindowsOr(field, days))
+      } else {
+        query = query.gte(field, since)
+      }
+      return query
+    }
 
     const [reportsRes, submissionsRes] = await Promise.all([
-      supabaseAdmin.from('reports').select('reported_at').gte('reported_at', since),
-      supabaseAdmin.from('room_submissions').select('submitted_at').gte('submitted_at', since)
+      scoped('reports', 'reported_at'),
+      scoped('room_submissions', 'submitted_at')
     ])
     if (reportsRes.error) throw reportsRes.error
     if (submissionsRes.error) throw submissionsRes.error
 
-    // Bucketed by month, so the panel plots periods instead of listing one row
-    // per record — which also gave every row an undefined `period` key.
+    // Bucketed by period — month normally, day-plus-hour for picked days — so
+    // the panel plots periods instead of listing one row per record.
     const periods = new Map()
     const record = (value, field) => {
-      const period = value ? String(value).slice(0, 7) : null
+      const period = value ? bucketOf(value) : null
       if (!period) return
       if (!periods.has(period)) periods.set(period, { period, reports: 0, submissions: 0 })
       periods.get(period)[field] += 1
@@ -2165,6 +2475,51 @@ router.get('/analytics/trends', async (req, res) => {
     res.json({ success: true, data })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to load trends' })
+  }
+})
+
+/**
+ * Reports-plus-submissions counts per local calendar day, for the analytics
+ * day picker. Same offset contract as /audit-logs/dates: PostgREST cannot
+ * GROUP BY, so the bucketing happens here.
+ */
+router.get('/analytics/dates', async (req, res) => {
+  try {
+    const offsetMinutes = Number(req.query.offset)
+    if (!Number.isFinite(offsetMinutes) || Math.abs(offsetMinutes) > 14 * 60) {
+      return res.status(400).json({ success: false, message: 'A valid UTC offset is required' })
+    }
+
+    const [reportsRes, submissionsRes] = await Promise.all([
+      supabaseAdmin.from('reports').select('reported_at'),
+      supabaseAdmin.from('room_submissions').select('submitted_at')
+    ])
+    if (reportsRes.error) throw reportsRes.error
+    if (submissionsRes.error) throw submissionsRes.error
+
+    const buckets = new Map()
+    const count = (timestamp) => {
+      if (!timestamp) return
+      const local = new Date(new Date(timestamp).getTime() + offsetMinutes * 60_000)
+      const day = local.toISOString().slice(0, 10)
+      buckets.set(day, (buckets.get(day) ?? 0) + 1)
+    }
+    ;(reportsRes.data || []).forEach((row) => count(row.reported_at))
+    ;(submissionsRes.data || []).forEach((row) => count(row.submitted_at))
+
+    const dates = [...buckets.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => b.date.localeCompare(a.date))
+
+    res.json({
+      success: true,
+      data: {
+        dates,
+        total: (reportsRes.data?.length ?? 0) + (submissionsRes.data?.length ?? 0),
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load analytics history' })
   }
 })
 
@@ -2382,6 +2737,87 @@ router.post('/areas', async (req, res) => {
   }
 })
 
+const AREA_BATCH_LIMIT = 500
+const AREA_BATCH_COLUMNS = ['name', 'floor', 'description']
+
+/**
+ * Bulk area import. The spreadsheet is parsed in the browser and arrives here
+ * as plain JSON rows, one per line of the sheet. A row naming an area that
+ * already exists is reported as skipped rather than failing the whole file,
+ * so re-running an import after a partial failure is safe.
+ */
+router.post('/areas/batch', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : null
+    if (!rows?.length) {
+      return res.status(400).json({ success: false, message: 'The file has no rows to import' })
+    }
+    if (rows.length > AREA_BATCH_LIMIT) {
+      return res.status(400).json({
+        success: false,
+        message: `A single import is limited to ${AREA_BATCH_LIMIT} rows. Split the file and try again.`,
+      })
+    }
+
+    const { data: existingAreas, error: lookupError } = await supabaseAdmin
+      .from('areas')
+      .select('name')
+    if (lookupError) throw lookupError
+    const existingNames = new Set(
+      (existingAreas ?? []).map((area) => area.name?.toLowerCase()).filter(Boolean)
+    )
+
+    const created = []
+    const skipped = []
+    const failed = []
+
+    for (const [index, row] of rows.entries()) {
+      const label = `Row ${index + 2}`
+
+      const values = {}
+      for (const column of AREA_BATCH_COLUMNS) {
+        const value = typeof row?.[column] === 'string' ? row[column].trim() : row?.[column]
+        values[column] = value === undefined || value === null ? '' : String(value)
+      }
+
+      if (!values.name) {
+        failed.push({ row: label, reason: 'Missing name' })
+        continue
+      }
+
+      const key = values.name.toLowerCase()
+      if (existingNames.has(key)) {
+        skipped.push({ row: label, reason: 'Area name already in use', area: values })
+        continue
+      }
+
+      try {
+        const { data, error } = await supabaseAdmin
+          .from('areas')
+          .insert({
+            name: values.name,
+            floor: values.floor || null,
+            description: values.description || null,
+          })
+          .select()
+          .single()
+        if (error) throw error
+        existingNames.add(key)
+        created.push({ row: label, area: data })
+      } catch (err) {
+        failed.push({ row: label, reason: err.message || 'Could not create this area' })
+      }
+    }
+
+    res.json({
+      success: true,
+      data: { created, skipped, failed, total: rows.length },
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to import areas' })
+  }
+})
+
 router.put('/areas/:id', async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin.from('areas').update(req.body).eq('id', req.params.id).select().single()
@@ -2399,6 +2835,124 @@ router.delete('/areas/:id', async (req, res) => {
     res.json({ success: true, message: 'Area deleted' })
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to delete area' })
+  }
+})
+
+/**
+ * Aggregates everything recorded against an area for the admin overview
+ * modal: rotational assignments, cleaning records, excuse requests and
+ * exemption days — scoped by area_id. The optional ?date=YYYY-MM-DD narrows
+ * cleaning records, excuses and exemptions to that day; assignments are a
+ * recurring weekly schedule and stay unfiltered.
+ */
+router.get('/areas/:id/stats', async (req, res) => {
+  try {
+    const areaId = req.params.id
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null
+    const nextDay = date
+      ? new Date(new Date(`${date}T00:00:00`).getTime() + 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10)
+      : null
+
+    const assignmentsQuery = supabaseAdmin
+      .from('area_assignments')
+      .select('id, day_of_week, is_active, section:sections(program, year_level, section_name)')
+      .eq('area_id', areaId)
+      .order('day_of_week')
+
+    const cleaningQuery = supabaseAdmin
+      .from('cleaning_records')
+      .select('id, status, submitted_at, section:sections(program, year_level, section_name)')
+      .eq('area_id', areaId)
+      .order('submitted_at', { ascending: false })
+    if (date) {
+      cleaningQuery
+        .gte('submitted_at', `${date}T00:00:00`)
+        .lt('submitted_at', `${nextDay}T00:00:00`)
+    }
+
+    const excusesQuery = supabaseAdmin
+      .from('excuse_requests')
+      .select('status, excuse_date')
+      .eq('area_id', areaId)
+    if (date) excusesQuery.eq('excuse_date', date)
+
+    const exemptionsQuery = supabaseAdmin
+      .from('exemption_days')
+      .select('exemption_type, exemption_date, is_active')
+      .eq('area_id', areaId)
+    if (date) exemptionsQuery.eq('exemption_date', date)
+
+    const [assignmentsRes, cleaningRes, excusesRes, exemptionsRes] = await Promise.all([
+      assignmentsQuery,
+      cleaningQuery,
+      excusesQuery,
+      exemptionsQuery,
+    ])
+
+    for (const result of [assignmentsRes, cleaningRes, excusesRes, exemptionsRes]) {
+      if (result.error) throw result.error
+    }
+
+    const activeAssignments = (assignmentsRes.data ?? []).filter((row) => row.is_active)
+    const assignmentsByDay = {}
+    for (const row of activeAssignments) {
+      assignmentsByDay[row.day_of_week] = (assignmentsByDay[row.day_of_week] ?? 0) + 1
+    }
+
+    const cleaningByStatus = {}
+    for (const record of cleaningRes.data ?? []) {
+      cleaningByStatus[record.status] = (cleaningByStatus[record.status] ?? 0) + 1
+    }
+
+    const excusesByStatus = {}
+    for (const request of excusesRes.data ?? []) {
+      excusesByStatus[request.status] = (excusesByStatus[request.status] ?? 0) + 1
+    }
+
+    const exemptionsByType = {}
+    for (const exemption of exemptionsRes.data ?? []) {
+      exemptionsByType[exemption.exemption_type] =
+        (exemptionsByType[exemption.exemption_type] ?? 0) + 1
+    }
+
+    // cleaningRes is ordered submitted_at desc, so the first row is the most
+    // recent record in the current scope. Only a completed record (before and
+    // after photos submitted) counts as clean — pending or absent means the
+    // area is still unclean.
+    const latestCleaning = (cleaningRes.data ?? [])[0] ?? null
+    const cleanliness = latestCleaning?.status === 'completed' ? 'clean' : 'unclean'
+
+    res.json({
+      success: true,
+      data: {
+        date,
+        cleanliness,
+        lastCleanedAt:
+          cleanliness === 'clean' ? latestCleaning.submitted_at : null,
+        assignments: {
+          total: activeAssignments.length,
+          byDay: assignmentsByDay,
+          list: activeAssignments,
+        },
+        cleaning: {
+          total: (cleaningRes.data ?? []).length,
+          byStatus: cleaningByStatus,
+          records: cleaningRes.data ?? [],
+        },
+        excuses: {
+          total: (excusesRes.data ?? []).length,
+          byStatus: excusesByStatus,
+        },
+        exemptions: {
+          total: (exemptionsRes.data ?? []).length,
+          byType: exemptionsByType,
+        },
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to load area stats' })
   }
 })
 
@@ -2664,6 +3218,34 @@ router.get('/excuse-requests', async (req, res) => {
   }
 })
 
+/**
+ * Permanently deletes excuse requests by id — the batch bar's delete action.
+ * Body: { ids: [...] }, capped so a malformed request cannot sweep the table.
+ */
+router.delete('/excuse-requests', async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : []
+    const valid = [...new Set(ids.filter((id) => typeof id === 'string' && id.length > 0))]
+    if (!valid.length) {
+      return res.status(400).json({ success: false, message: 'At least one request id is required' })
+    }
+    if (valid.length > 500) {
+      return res.status(400).json({ success: false, message: 'Delete 500 requests or fewer at a time' })
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('excuse_requests')
+      .delete()
+      .in('id', valid)
+      .select('id')
+    if (error) throw error
+
+    res.json({ success: true, data, deleted: data?.length ?? 0 })
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to delete excuse requests' })
+  }
+})
+
 router.post('/excuse-requests/:id/approve', async (req, res) => {
   try {
     const { admin_note } = req.body
@@ -2706,66 +3288,163 @@ router.post('/excuse-requests/:id/reject', async (req, res) => {
   }
 })
 
-// Admin creates an excuse directly (auto-approved)
+// Admin creates excuses directly (auto-approved). Accepts a JSON body with
+// `section_ids` (or `all_sections: true`) so one request can excuse several
+// sections at once; an image is optional — admins do not need proof.
 router.post('/excuse-requests/admin-create', upload.single('image'), async (req, res) => {
   try {
-    const { section_id, excuse_date, excuse_type, room_id, area_id, schedule_id, reason } = req.body
+    const {
+      section_ids,
+      section_id,
+      all_sections,
+      excuse_date,
+      excuse_type,
+      room_id,
+      area_id,
+      area_ids,
+      schedule_id,
+      schedule_ids,
+      reason,
+    } = req.body
     const file = req.file
 
-    if (!file) {
-      return res.status(400).json({ success: false, message: 'Image proof is required' })
+    const toIdList = (value) =>
+      Array.isArray(value)
+        ? value
+        : typeof value === 'string'
+          ? value.split(',').map((entry) => entry.trim()).filter(Boolean)
+          : value
+            ? [value]
+            : []
+
+    let ids = [...new Set(toIdList(section_ids).concat(toIdList(section_id)))]
+
+    if (!ids.length && all_sections) {
+      const { data: sections, error: sectionsError } = await supabaseAdmin
+        .from('sections')
+        .select('id')
+        .eq('is_active', true)
+      if (sectionsError) throw sectionsError
+      ids = (sections || []).map((section) => section.id)
     }
 
-    if (!section_id || !excuse_date || !excuse_type || !reason) {
+    ids = [...new Set(ids.filter(Boolean))]
+
+    if (!ids.length) {
+      return res.status(400).json({ success: false, message: 'At least one section is required' })
+    }
+
+    if (!excuse_date || !excuse_type || !reason) {
       return res.status(400).json({
         success: false,
-        message: 'Section, excuse date, type, and reason are required'
+        message: 'Excuse date, type, and reason are required'
       })
     }
 
-    // Upload to Supabase Storage
-    const fileName = `excuse-proofs/${section_id}/${Date.now()}-${file.originalname}`
-    const { error: uploadError } = await supabaseAdmin
-      .storage
-      .from('excuse-proofs')
-      .upload(fileName, file.buffer, {
-        contentType: file.mimetype
+    const scopedScheduleIds = [...new Set(toIdList(schedule_ids).concat(toIdList(schedule_id)))]
+    const scopedAreaIds = [...new Set(toIdList(area_ids).concat(toIdList(area_id)))]
+    if (excuse_type === 'room_schedule' && !scopedScheduleIds.length) {
+      return res.status(400).json({ success: false, message: 'Select at least one schedule' })
+    }
+    if (excuse_type === 'area_assignment' && !scopedAreaIds.length) {
+      return res.status(400).json({ success: false, message: 'Select at least one area' })
+    }
+
+    // Upload to Supabase Storage only when a proof image was actually sent.
+    let imageUrl = null
+    if (file) {
+      const fileName = `excuse-proofs/admin/${Date.now()}-${file.originalname}`
+      const { error: uploadError } = await supabaseAdmin
+        .storage
+        .from('excuse-proofs')
+        .upload(fileName, file.buffer, {
+          contentType: file.mimetype
+        })
+      if (uploadError) throw uploadError
+
+      const { data: urlData } = supabaseAdmin.storage.from('excuse-proofs').getPublicUrl(fileName)
+      imageUrl = urlData.publicUrl
+    }
+
+    // req.user.id is already the profile id — authenticateUser spreads the
+    // profile over it. Looking it up again by auth_user_id matched nothing and
+    // left adminProfile null, which is what crashed on .id below.
+    const adminProfileId = req.user.id
+
+    const reviewedAt = new Date().toISOString()
+    const base = (targetSectionId, scoped = {}) => ({
+      section_id: targetSectionId,
+      requested_by: adminProfileId,
+      excuse_date,
+      excuse_type,
+      room_id: room_id || null,
+      area_id: null,
+      schedule_id: null,
+      reason,
+      // proof_image_url is NOT NULL — admins send no proof, so it stores ''
+      // rather than null, which every reader treats as "no image" anyway.
+      proof_image_url: imageUrl || '',
+      status: 'approved',
+      admin_note: 'Created by admin',
+      reviewed_by: adminProfileId,
+      reviewed_at: reviewedAt,
+      ...scoped,
+    })
+
+    /*
+      Scoped excuses pair each picked schedule/area only with the sections it
+      actually belongs to — a schedule belongs to exactly one section, and an
+      area only excuses the sections it is assigned to — rather than a blind
+      section × item cross product that would excuse sections from things they
+      never had.
+    */
+    let rows = []
+    if (excuse_type === 'room_schedule') {
+      const { data: schedules, error: schedulesError } = await supabaseAdmin
+        .from('schedules')
+        .select('id, section_id')
+        .in('id', scopedScheduleIds)
+      if (schedulesError) throw schedulesError
+      const wanted = new Set(ids)
+      rows = (schedules || [])
+        .filter((schedule) => wanted.has(schedule.section_id))
+        .map((schedule) => base(schedule.section_id, { schedule_id: schedule.id }))
+    } else if (excuse_type === 'area_assignment') {
+      const { data: assignments, error: assignmentsError } = await supabaseAdmin
+        .from('area_assignments')
+        .select('section_id, area_id')
+        .in('area_id', scopedAreaIds)
+        .in('section_id', ids)
+      if (assignmentsError) throw assignmentsError
+      const pairs = new Map()
+      for (const assignment of assignments || []) {
+        pairs.set(`${assignment.section_id}:${assignment.area_id}`, {
+          section_id: assignment.section_id,
+          area_id: assignment.area_id,
+        })
+      }
+      rows = [...pairs.values()].map((pair) => base(pair.section_id, { area_id: pair.area_id }))
+    } else {
+      rows = ids.map((targetSectionId) => base(targetSectionId))
+    }
+
+    if (!rows.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'None of the selected schedules or areas belong to the chosen sections',
       })
-    if (uploadError) throw uploadError
+    }
+    if (rows.length > 2000) {
+      return res.status(400).json({ success: false, message: 'Too many excuses in one request' })
+    }
 
-    const { data: urlData } = supabaseAdmin.storage.from('excuse-proofs').getPublicUrl(fileName)
-    const imageUrl = urlData.publicUrl
-
-    // Get the profile ID for the admin
-    const { data: adminProfile } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .eq('auth_user_id', req.user.id)
-      .single()
-
-    // Create excuse request with auto-approved status
     const { data, error } = await supabaseAdmin
       .from('excuse_requests')
-      .insert({
-        section_id,
-        requested_by: adminProfile.id,
-        excuse_date,
-        excuse_type,
-        room_id: room_id || null,
-        area_id: area_id || null,
-        schedule_id: schedule_id || null,
-        reason,
-        proof_image_url: imageUrl,
-        status: 'approved',
-        admin_note: 'Created by admin',
-        reviewed_by: adminProfile.id,
-        reviewed_at: new Date().toISOString()
-      })
+      .insert(rows)
       .select(EXCUSE_REQUEST_SELECT)
-      .single()
 
     if (error) throw error
-    res.json({ success: true, data })
+    res.json({ success: true, data, created: data?.length ?? 0 })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message || 'Failed to create excuse' })
   }

@@ -70,6 +70,22 @@ export function todayIso() {
   return new Date().toISOString().split('T')[0]
 }
 
+/**
+ * Local-time YYYY-MM-DD for a timestamp or DATE value — the same day keys the
+ * calendar marks and filters by. Date-only strings are taken as-is: parsing
+ * "2026-11-05" lands on UTC midnight, which a western timezone would render as
+ * the previous day.
+ */
+export function dayKey(value) {
+  if (!value) return null
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 export function currentDayIndex() {
   return new Date().getDay()
 }

@@ -3,7 +3,7 @@ import { cx } from '../../lib/cx'
 import { excuseService } from '../../services/excuseService'
 import { scheduleService } from '../../services/scheduleService'
 import { rotationalService } from '../../services/rotationalService'
-import { formatDate, sectionLabel } from '../../lib/format'
+import { formatDate } from '../../lib/format'
 import {
   Alert,
   Button,
@@ -77,7 +77,7 @@ export default function SpecialExcuses() {
       if (schedulesRes.success) setSchedules(schedulesRes.data || [])
       if (assignmentsRes.success) setAssignments(assignmentsRes.data || [])
     } catch (err) {
-      console.error('Failed to fetch schedules/assignments:', err)
+      setError(err.response?.data?.message || 'Failed to load schedules and assignments')
     }
   }, [])
 

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { reportService } from '../../services/reportService'
-import { formatDate, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
+import DayPickerModal from '../../components/DayPickerModal'
+import { dayKey, formatDate, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
+import { biCalendar, biCheckSquare, biTrash } from '../../utils/icons'
 import {
   ActionButton,
   Alert,
   Button,
+  ConfirmDialog,
   DetailList,
   EmptyState,
   LoadingBlock,
@@ -45,6 +48,12 @@ export default function AdminReports() {
   const [updating, setUpdating] = useState(false)
   const [error, setError] = useState('')
   const [adminNote, setAdminNote] = useState('')
+  const [viewDates, setViewDates] = useState([])
+  const [showDayPicker, setShowDayPicker] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
 
   const fetchReports = useCallback(async () => {
     setLoading(true)
@@ -66,16 +75,28 @@ export default function AdminReports() {
     fetchReports()
   }, [fetchReports])
 
+  // Days with reports, counted from the list already loaded — the calendar
+  // marks them the same way the audit log picker does, without a second query.
+  const dayCounts = useMemo(() => {
+    const counts = {}
+    for (const report of reports) {
+      const key = dayKey(report.reported_at)
+      if (key) counts[key] = (counts[key] ?? 0) + 1
+    }
+    return counts
+  }, [reports])
+
   const filteredReports = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
-    if (!term) return reports
+    return reports.filter((report) => {
+      if (viewDates.length > 0 && !viewDates.includes(dayKey(report.reported_at))) return false
+      if (!term) return true
 
-    return reports.filter((report) =>
-      [report.section?.section_name, report.section?.program, report.room?.room_code, report.reason?.name]
+      return [report.section?.section_name, report.section?.program, report.room?.room_code, report.reason?.name]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(term))
-    )
-  }, [reports, searchTerm])
+    })
+  }, [reports, searchTerm, viewDates])
 
   const pendingCount = reports.filter((report) => report.status === 'pending').length
 
@@ -127,6 +148,59 @@ export default function AdminReports() {
     }
   }
 
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelectedIds(new Set())
+      return !on
+    })
+  }
+
+  function toggleReportSelection(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectedReports = reports.filter((report) => selectedIds.has(report.id))
+
+  const allVisibleSelected =
+    filteredReports.length > 0 && filteredReports.every((report) => selectedIds.has(report.id))
+
+  function toggleAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (allVisibleSelected) {
+        filteredReports.forEach((report) => next.delete(report.id))
+      } else {
+        filteredReports.forEach((report) => next.add(report.id))
+      }
+      return next
+    })
+  }
+
+  /** Bulk delete — permanent, behind the same selection bar as the excuse page. */
+  async function handleBulkDelete() {
+    setBulkSaving(true)
+    setError('')
+    try {
+      const response = await reportService.deleteReports([...selectedIds])
+      if (response.success) {
+        setSelectedIds(new Set())
+        setBulkDeleteOpen(false)
+        await fetchReports()
+      } else {
+        setError(response.message || 'Failed to delete reports')
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete reports')
+    } finally {
+      setBulkSaving(false)
+    }
+  }
+
   async function handleSaveNote() {
     if (!selected) return
     setUpdating(true)
@@ -152,11 +226,27 @@ export default function AdminReports() {
         title="Reports"
         subtitle="Manage room cleanliness reports"
         actions={
-          pendingCount > 0 ? (
-            <span className="text-sm text-ink-muted">
-              <strong className="tabular text-ink">{pendingCount}</strong> awaiting review
-            </span>
-          ) : null
+          <>
+            <Button
+              variant={selectMode ? 'primary' : 'secondary'}
+              icon={biCheckSquare}
+              onClick={toggleSelectMode}
+            >
+              {selectMode ? 'Done' : 'Select'}
+            </Button>
+            <Button
+              variant="secondary"
+              icon={biCalendar}
+              onClick={() => setShowDayPicker(true)}
+            >
+              Filter by date
+            </Button>
+            {pendingCount > 0 && (
+              <span className="ml-4 text-sm text-ink-muted">
+                <strong className="tabular text-ink">{pendingCount}</strong> awaiting review
+              </span>
+            )}
+          </>
         }
       />
 
@@ -166,9 +256,43 @@ export default function AdminReports() {
         </Alert>
       )}
 
+      {viewDates.length > 0 && (
+        <Alert
+          tone="info"
+          className="mb-5"
+          onDismiss={() => setViewDates([])}
+          title={
+            viewDates.length === 1
+              ? `Showing ${formatDate(viewDates[0])} only`
+              : `Showing ${viewDates.length} selected days`
+          }
+        >
+          Reports filed on the selected days.
+        </Alert>
+      )}
+
+      {selectMode && selectedReports.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3">
+          <span className="text-sm font-medium text-ink">{selectedReports.length} selected</span>
+          <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
+          <Button
+            size="sm"
+            variant="danger"
+            icon={biTrash}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            Delete
+          </Button>
+        </div>
+      )}
+
       <TableCard
         title="All reports"
-        subtitle={`${filteredReports.length} of ${reports.length} shown`}
+        subtitle={
+          viewDates.length > 0
+            ? `${filteredReports.length} report${filteredReports.length === 1 ? '' : 's'} on the selected day${viewDates.length === 1 ? '' : 's'}`
+            : `${filteredReports.length} of ${reports.length} shown`
+        }
         search={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Search section, room, reason…"
@@ -179,7 +303,11 @@ export default function AdminReports() {
             icon="bi-exclamation-triangle"
             title="No reports found"
             description={
-              searchTerm ? 'No reports match your search.' : 'No cleanliness reports have been filed.'
+              searchTerm
+                ? 'No reports match your search.'
+                : viewDates.length > 0
+                  ? 'No reports were filed on the selected days.'
+                  : 'No cleanliness reports have been filed.'
             }
           />
         }
@@ -188,6 +316,17 @@ export default function AdminReports() {
           <Table>
             <THead>
               <tr>
+                {selectMode && (
+                  <TH className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all reports"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                    />
+                  </TH>
+                )}
                 <TH>Date</TH>
                 <TH>Time</TH>
                 <TH>Section</TH>
@@ -199,7 +338,23 @@ export default function AdminReports() {
             </THead>
             <TBody>
               {filteredReports.map((report) => (
-                <TR key={report.id}>
+                <TR
+                  key={report.id}
+                  className={selectMode ? undefined : 'cursor-pointer'}
+                  title={selectMode ? undefined : 'View report details'}
+                  onClick={() => (selectMode ? toggleReportSelection(report.id) : openDetails(report))}
+                >
+                  {selectMode && (
+                    <TD onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select report ${report.id}`}
+                        checked={selectedIds.has(report.id)}
+                        onChange={() => toggleReportSelection(report.id)}
+                        className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                      />
+                    </TD>
+                  )}
                   <TD className="whitespace-nowrap">{formatDate(report.reported_at)}</TD>
                   <TD className="tabular whitespace-nowrap">
                     {report.reported_at
@@ -212,7 +367,7 @@ export default function AdminReports() {
                   <TD>
                     <StatusBadge map={REPORT_STATUS} value={report.status} />
                   </TD>
-                  <TD align="right">
+                  <TD align="right" onClick={(event) => event.stopPropagation()}>
                     <RowActions label={`Actions for report ${report.id}`}>
                       {(NEXT_ACTIONS[report.status] ?? []).map((action) => (
                         <ActionButton
@@ -245,14 +400,9 @@ export default function AdminReports() {
         title="Report details"
         size="lg"
         footer={
-          <>
-            <Button variant="secondary" onClick={closeDetails} disabled={updating}>
-              Close
-            </Button>
-            <Button variant="primary" onClick={handleSaveNote} loading={updating}>
-              Save note
-            </Button>
-          </>
+          <Button variant="primary" onClick={handleSaveNote} loading={updating}>
+            Save note
+          </Button>
         }
       >
         {selected && (
@@ -314,6 +464,26 @@ export default function AdminReports() {
           </div>
         )}
       </Modal>
+
+      <DayPickerModal
+        open={showDayPicker}
+        onClose={() => setShowDayPicker(false)}
+        onDaysChange={setViewDates}
+        selectedDays={viewDates}
+        counts={dayCounts}
+        description="Pick days to show only the reports filed on them. Click a day to toggle it; hold shift to select a range. Days with reports are marked with a count."
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        title={`Delete ${selectedReports.length} report${selectedReports.length === 1 ? '' : 's'}`}
+        description="Permanently delete the selected reports? This cannot be undone."
+        confirmLabel="Delete"
+        tone="bad"
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
+        loading={bulkSaving}
+      />
     </>
   )
 }

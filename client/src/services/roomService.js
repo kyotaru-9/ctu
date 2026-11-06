@@ -54,6 +54,15 @@ export const roomService = {
     return response.data
   },
 
+  /**
+   * Aggregated overview for one room: schedules, occupations, submissions and
+   * reports. Pass `{ date: 'YYYY-MM-DD' }` to narrow the day-scoped counts.
+   */
+  async getStats(id, params = {}) {
+    const response = await api.get(`/admin/rooms/${id}/stats`, { params })
+    return response.data
+  },
+
   async regenerateQR(id) {
     const response = await api.post(`/admin/rooms/${id}/regenerate-qr`)
     return response.data

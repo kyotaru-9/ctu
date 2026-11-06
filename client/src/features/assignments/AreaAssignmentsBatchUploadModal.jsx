@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { DAY_NAMES_LIST } from '../../lib/format'
 import { areaAssignmentService } from '../../services/areaAssignmentService'
 import { Badge, Select } from '../../components/ui'
@@ -84,7 +84,7 @@ export default function AreaAssignmentsBatchUploadModal({ open, onClose, onImpor
     const sectionId = sectionMap.get(sectionName.toLowerCase())
     const areaId = areaMap.get(areaName.toLowerCase())
 
-    return { ...row, issue: problem, day_number: day, section_id, area_id }
+    return { ...row, issue: problem, day_number: day, section_id: sectionId, area_id: areaId }
   }
 
   return (

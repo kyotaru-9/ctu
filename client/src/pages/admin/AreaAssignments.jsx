@@ -4,11 +4,9 @@ import { areaService } from '../../services/areaService'
 import { sectionService } from '../../services/sectionService'
 import AreaAssignmentsBatchUploadModal from '../../features/assignments/AreaAssignmentsBatchUploadModal'
 import {
+  biCheckSquare,
   biCloudUpload,
-  biPencil,
   biPlus,
-  biToggleOff,
-  biToggleOn,
   biTrash,
 } from '../../utils/icons'
 import {
@@ -20,8 +18,6 @@ import {
   Input,
   Modal,
   PageHeader,
-  RowActions,
-  ActionButton,
   ScrollX,
   Select,
   StatusBadge,
@@ -59,12 +55,12 @@ export default function AdminAreaAssignments() {
   const [showForm, setShowForm] = useState(false)
   const [showBatchUpload, setShowBatchUpload] = useState(false)
   const [editingAssignment, setEditingAssignment] = useState(null)
-  const [deleteTarget, setDeleteTarget] = useState(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [togglingId, setTogglingId] = useState(null)
-  const [deactivateTarget, setDeactivateTarget] = useState(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
   const [formData, setFormData] = useState(BLANK_FORM)
@@ -92,7 +88,7 @@ export default function AdminAreaAssignments() {
         setSections(response.data.filter(s => s.is_active))
       }
     } catch (err) {
-      console.error('Failed to load sections:', err)
+      setError(err.response?.data?.message || 'Failed to load sections')
     }
   }, [])
 
@@ -103,7 +99,7 @@ export default function AdminAreaAssignments() {
         setAreas(response.data.filter(a => a.is_active))
       }
     } catch (err) {
-      console.error('Failed to load areas:', err)
+      setError(err.response?.data?.message || 'Failed to load areas')
     }
   }, [])
 
@@ -205,80 +201,61 @@ export default function AdminAreaAssignments() {
     }
   }
 
-  /**
-   * Disabling an assignment hides it from the section's rotational cleaning
-   * view without deleting the row — student and special queries already filter
-   * on is_active. The row updates from the response so the badge reflects the
-   * click immediately, then the list re-syncs.
-   */
-  async function applyStatus(assignment, nextActive) {
-    setTogglingId(assignment.id)
-    setError('')
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelectedIds(new Set())
+      return !on
+    })
+  }
 
-    try {
-      const response = await areaAssignmentService.update(assignment.id, { is_active: nextActive })
+  function toggleAssignmentSelection(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
-      if (!response.success) {
-        setError(response.message || 'Failed to update assignment')
-        return false
+  const selectedAssignments = assignments.filter((assignment) => selectedIds.has(assignment.id))
+
+  const allVisibleSelected =
+    filteredAssignments.length > 0 &&
+    filteredAssignments.every((assignment) => selectedIds.has(assignment.id))
+
+  function toggleAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (allVisibleSelected) {
+        filteredAssignments.forEach((assignment) => next.delete(assignment.id))
+      } else {
+        filteredAssignments.forEach((assignment) => next.add(assignment.id))
       }
+      return next
+    })
+  }
 
-      setAssignments((current) =>
-        current.map((item) => (item.id === assignment.id ? { ...item, ...response.data } : item))
+  /** Bulk delete — same per-assignment endpoint, run in parallel. */
+  async function handleBulkDelete() {
+    setBulkSaving(true)
+    setError('')
+    try {
+      const results = await Promise.allSettled(
+        selectedAssignments.map((assignment) => areaAssignmentService.delete(assignment.id))
       )
-      await fetchAssignments()
-      return true
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update assignment')
-      return false
-    } finally {
-      setTogglingId(null)
-    }
-  }
-
-  /**
-   * Disabling asks first, the same gate the delete dialog uses: both end at
-   * is_active = false. Enabling goes straight through.
-   */
-  function handleToggleStatus(assignment) {
-    if (assignment.is_active) {
-      setDeactivateTarget(assignment)
-      return
-    }
-    applyStatus(assignment, true)
-  }
-
-  async function handleConfirmDeactivate() {
-    if (!deactivateTarget) return
-    const ok = await applyStatus(deactivateTarget, false)
-    if (ok) setDeactivateTarget(null)
-  }
-
-  function openDeleteDialog(assignment) {
-    setDeleteTarget(assignment)
-    setError('')
-  }
-
-  function closeDeleteDialog() {
-    setDeleteTarget(null)
-  }
-
-  async function handleDelete() {
-    if (!deleteTarget) return
-    setDeleting(true)
-    setError('')
-    try {
-      const response = await areaAssignmentService.delete(deleteTarget.id)
-      if (!response.success) {
-        setError(response.message || 'Failed to delete assignment')
-        return
+      const failed = results.filter(
+        (result) => result.status === 'rejected' || result.value?.success === false
+      ).length
+      if (failed > 0) {
+        setError(`${failed} of ${selectedAssignments.length} assignments could not be deleted.`)
       }
-      closeDeleteDialog()
+      setSelectedIds(new Set())
+      setBulkDeleteOpen(false)
       await fetchAssignments()
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete assignment')
+      setError(err.response?.data?.message || 'Failed to delete assignments')
     } finally {
-      setDeleting(false)
+      setBulkSaving(false)
     }
   }
 
@@ -289,6 +266,13 @@ export default function AdminAreaAssignments() {
         subtitle="Assign sections to cleaning areas on specific days. Sections will see their assigned area for the day."
         actions={
           <>
+            <Button
+              variant={selectMode ? 'primary' : 'secondary'}
+              icon={biCheckSquare}
+              onClick={toggleSelectMode}
+            >
+              {selectMode ? 'Done' : 'Select'}
+            </Button>
             <Button variant="secondary" icon={biCloudUpload} onClick={() => setShowBatchUpload(true)}>
               Batch upload
             </Button>
@@ -303,6 +287,21 @@ export default function AdminAreaAssignments() {
         <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
           {error}
         </Alert>
+      )}
+
+      {selectMode && selectedAssignments.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3">
+          <span className="text-sm font-medium text-ink">{selectedAssignments.length} selected</span>
+          <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
+          <Button
+            size="sm"
+            variant="danger"
+            icon={biTrash}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            Delete
+          </Button>
+        </div>
       )}
 
       <TableCard
@@ -329,16 +328,44 @@ export default function AdminAreaAssignments() {
           <Table>
             <THead>
               <tr>
+                {selectMode && (
+                  <TH className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all assignments"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                    />
+                  </TH>
+                )}
                 <TH>Section</TH>
                 <TH>Area</TH>
                 <TH>Day</TH>
                 <TH>Status</TH>
-                <TH align="right">Actions</TH>
               </tr>
             </THead>
             <TBody>
               {filteredAssignments.map((assignment) => (
-                <TR key={assignment.id}>
+                <TR
+                  key={assignment.id}
+                  className={selectMode ? undefined : 'cursor-pointer'}
+                  title={selectMode ? undefined : 'Edit assignment'}
+                  onClick={() =>
+                    selectMode ? toggleAssignmentSelection(assignment.id) : handleOpenEdit(assignment)
+                  }
+                >
+                  {selectMode && (
+                    <TD onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select assignment ${assignment.id}`}
+                        checked={selectedIds.has(assignment.id)}
+                        onChange={() => toggleAssignmentSelection(assignment.id)}
+                        className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                      />
+                    </TD>
+                  )}
                   <TD className="font-medium">{getSectionLabel(assignment.section_id)}</TD>
                   <TD>{getAreaLabel(assignment.area_id)}</TD>
                   <TD>
@@ -346,33 +373,6 @@ export default function AdminAreaAssignments() {
                   </TD>
                   <TD>
                     <StatusBadge map={ACTIVE_STATUS} value={String(Boolean(assignment.is_active))} />
-                  </TD>
-                  <TD align="right">
-                    <RowActions label={`Actions for assignment`}>
-                      <ActionButton
-                        icon={biPencil}
-                        label="Edit assignment"
-                        tone="accent"
-                        onClick={() => handleOpenEdit(assignment)}
-                      />
-                      <ActionButton
-                        icon={assignment.is_active ? biToggleOff : biToggleOn}
-                        label={
-                          assignment.is_active
-                            ? 'Disable assignment'
-                            : 'Enable assignment'
-                        }
-                        tone={assignment.is_active ? 'bad' : 'ok'}
-                        disabled={togglingId === assignment.id}
-                        onClick={() => handleToggleStatus(assignment)}
-                      />
-                      <ActionButton
-                        icon={biTrash}
-                        label="Delete assignment"
-                        tone="bad"
-                        onClick={() => openDeleteDialog(assignment)}
-                      />
-                    </RowActions>
                   </TD>
                 </TR>
               ))}
@@ -451,32 +451,16 @@ export default function AdminAreaAssignments() {
         </form>
       </Modal>
 
-      {/* Disable confirmation */}
+      {/* Bulk delete confirmation */}
       <ConfirmDialog
-        open={Boolean(deactivateTarget)}
-        onClose={() => setDeactivateTarget(null)}
-        onConfirm={handleConfirmDeactivate}
-        loading={Boolean(togglingId)}
-        title="Disable assignment"
-        description={
-          deactivateTarget
-            ? `Disable the assignment for ${getSectionLabel(deactivateTarget.section_id)} on ${DAY_LABELS[deactivateTarget.day_of_week] || deactivateTarget.day_of_week}? The section will stop seeing this area until it is re-enabled.`
-            : ''
-        }
-        confirmLabel="Disable"
-        tone="bad"
-      />
-
-      {/* Delete confirmation */}
-      <ConfirmDialog
-        open={!!deleteTarget}
-        title="Delete assignment"
-        description={`Are you sure you want to delete this assignment? This action cannot be undone.`}
+        open={bulkDeleteOpen}
+        title={`Delete ${selectedAssignments.length} assignment${selectedAssignments.length === 1 ? '' : 's'}`}
+        description="Permanently delete the selected assignments? Sections will stop seeing these areas on those days. This cannot be undone."
         confirmLabel="Delete"
         tone="bad"
-        onClose={closeDeleteDialog}
-        onConfirm={handleDelete}
-        loading={deleting}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
+        loading={bulkSaving}
       />
 
       {/* Batch upload */}

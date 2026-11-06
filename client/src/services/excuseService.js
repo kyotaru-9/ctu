@@ -18,10 +18,13 @@ export const excuseService = {
     return response.data
   },
 
-  adminCreate: async (formData) => {
-    const response = await api.post('/admin/excuse-requests/admin-create', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+  deleteRequests: async (ids) => {
+    const response = await api.delete('/admin/excuse-requests', { data: { ids } })
+    return response.data
+  },
+
+  adminCreate: async (data) => {
+    const response = await api.post('/admin/excuse-requests/admin-create', data)
     return response.data
   },
 

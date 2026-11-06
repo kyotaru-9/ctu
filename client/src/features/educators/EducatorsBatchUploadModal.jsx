@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { educatorService } from '../../services/educatorService'
 import BatchImportModal from '../batch/BatchImportModal'
 

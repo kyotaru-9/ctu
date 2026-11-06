@@ -92,13 +92,6 @@ export default function StudentRotational() {
 
   // Validate required fields
   const currentTime = phase === PHASE.BEFORE ? beforeTime : afterTime
-  const isDetailsValid = currentTime
-
-  const stepList = [
-    { key: STEPS.DETAILS, label: 'Details' },
-    { key: STEPS.CAPTURE, label: 'Photo' },
-    { key: STEPS.REVIEW, label: 'Review' },
-  ]
 
   const fetchToday = useCallback(async () => {
     try {
@@ -120,7 +113,7 @@ export default function StudentRotational() {
         setSchedule(response.data)
       }
     } catch (err) {
-      console.error('Failed to load schedule:', err)
+      setError(err.response?.data?.message || 'Failed to load schedule')
     }
   }, [])
 

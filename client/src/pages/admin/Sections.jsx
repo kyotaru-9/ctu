@@ -6,8 +6,8 @@ import { formatDate } from '../../lib/format'
 import { biCalendar } from '../../utils/icons'
 import {
   biArrowRepeat,
+  biCheckSquare,
   biCloudUpload,
-  biEyeFill,
   biPencil,
   biPlus,
   biToggleOff,
@@ -29,11 +29,8 @@ import {
   Input,
   LoadingBlock,
   Modal,
-  OCCUPATION_STATUS,
   PageHeader,
   Progress,
-  RowActions,
-  ActionButton,
   ScrollX,
   Select,
   SkeletonBento,
@@ -242,6 +239,13 @@ export default function AdminSections() {
   const [viewError, setViewError] = useState('')
   const [statsDate, setStatsDate] = useState(null)
   const [showStatsDayPicker, setShowStatsDayPicker] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkDisableOpen, setBulkDisableOpen] = useState(false)
+  const [bulkDisableReason, setBulkDisableReason] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkRegenerateOpen, setBulkRegenerateOpen] = useState(false)
   const [statsCalendarMonth, setStatsCalendarMonth] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
@@ -254,6 +258,11 @@ export default function AdminSections() {
       const response = await sectionService.getAll()
       if (response.success) {
         setSections(response.data)
+        setSelectedIds((current) => {
+          const alive = new Set(response.data.map((section) => section.id))
+          return new Set([...current].filter((id) => alive.has(id)))
+        })
+        return response.data
       } else {
         setError(response.message || 'Failed to load sections')
       }
@@ -280,6 +289,39 @@ export default function AdminSections() {
   }, [sections, searchTerm])
 
   const activeCount = sections.filter((section) => section.is_active).length
+
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelectedIds(new Set())
+      return !on
+    })
+  }
+
+  function toggleRowSelection(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const allVisibleSelected =
+    filteredSections.length > 0 && filteredSections.every((section) => selectedIds.has(section.id))
+
+  function toggleAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (allVisibleSelected) {
+        filteredSections.forEach((section) => next.delete(section.id))
+      } else {
+        filteredSections.forEach((section) => next.add(section.id))
+      }
+      return next
+    })
+  }
+
+  const selectedSections = sections.filter((section) => selectedIds.has(section.id))
 
   function update(field, value) {
     setFormData((previous) => ({ ...previous, [field]: value }))
@@ -541,6 +583,60 @@ export default function AdminSections() {
     setShowStatsDayPicker(false)
   }
 
+  /**
+   * Bulk disable shares one reason across every selected section — the same
+   * text a single disable would collect, applied to all of them at once.
+   */
+  async function handleBulkDisable() {
+    const reason = bulkDisableReason.trim()
+    if (!reason) return
+
+    setBulkSaving(true)
+    setError('')
+    try {
+      const results = await Promise.allSettled(
+        selectedSections.map((section) => sectionService.toggleStatus(section.id, false, reason))
+      )
+      const failed = results.filter(
+        (result) => result.status === 'rejected' || result.value?.success === false
+      ).length
+      if (failed > 0) {
+        setError(`${failed} of ${results.length} sections could not be disabled.`)
+      }
+      setSelectedIds(new Set())
+      setBulkDisableOpen(false)
+      setBulkDisableReason('')
+      await fetchSections()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to disable sections')
+    } finally {
+      setBulkSaving(false)
+    }
+  }
+
+  async function handleBulkDelete() {
+    setBulkSaving(true)
+    setError('')
+    try {
+      const results = await Promise.allSettled(
+        selectedSections.map((section) => sectionService.delete(section.id))
+      )
+      const failed = results.filter(
+        (result) => result.status === 'rejected' || result.value?.success === false
+      ).length
+      if (failed > 0) {
+        setError(`${failed} of ${results.length} sections could not be deleted.`)
+      }
+      setSelectedIds(new Set())
+      await fetchSections()
+      if (failed === 0) setBulkDeleteOpen(false)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete sections')
+    } finally {
+      setBulkSaving(false)
+    }
+  }
+
   const sectionLabel = [formData.program, formData.year_level, formData.section_name]
     .filter(Boolean)
     .join(' ')
@@ -579,6 +675,49 @@ export default function AdminSections() {
     }
   }
 
+  /**
+   * Same reset as the single-section flow, run for every selected section.
+   * Each account's role label is prefixed with its section so the credentials
+   * modal can tell the batches apart — and so React keys stay unique.
+   */
+  async function handleBulkRegenerate() {
+    setRegenerating(true)
+    setError('')
+    try {
+      const results = await Promise.allSettled(
+        selectedSections.map((section) => sectionService.regenerateCredentials(section.id))
+      )
+
+      const accounts = []
+      let failed = 0
+      results.forEach((result, index) => {
+        const section = selectedSections[index]
+        const label = [section.program, section.year_level, section.section_name]
+          .filter(Boolean)
+          .join(' ')
+        if (result.status === 'rejected' || !result.value?.success) {
+          failed += 1
+          return
+        }
+        for (const account of result.value.data?.accounts ?? []) {
+          accounts.push({ ...account, role: `${label} · ${account.role}` })
+        }
+      })
+
+      if (failed > 0) {
+        setError(`${failed} of ${selectedSections.length} sections could not be regenerated.`)
+      }
+      if (accounts.length > 0) {
+        setBulkRegenerateOpen(false)
+        setRegenerated({ accounts, section: `${selectedSections.length} sections` })
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to regenerate credentials')
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -586,6 +725,13 @@ export default function AdminSections() {
         subtitle="Manage class sections and their student accounts. Disabling a section stops its student logins too."
         actions={
           <>
+            <Button
+              variant={selectMode ? 'primary' : 'secondary'}
+              icon={biCheckSquare}
+              onClick={toggleSelectMode}
+            >
+              {selectMode ? 'Done' : 'Select'}
+            </Button>
             <Button variant="secondary" icon={biCloudUpload} onClick={() => setShowBatchUpload(true)}>
               Batch upload
             </Button>
@@ -629,6 +775,59 @@ export default function AdminSections() {
         </BentoGrid>
       )}
 
+      {selectMode && selectedSections.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3">
+          <span className="text-sm font-medium text-ink">{selectedSections.length} selected</span>
+          <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
+          {selectedSections.length === 1 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={biPencil}
+              onClick={() => handleOpenEdit(selectedSections[0])}
+            >
+              Edit section
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={biArrowRepeat}
+            onClick={() =>
+              selectedSections.length === 1
+                ? setRegenerateTarget(selectedSections[0])
+                : setBulkRegenerateOpen(true)
+            }
+          >
+            Regenerate
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={biToggleOff}
+            onClick={() =>
+              selectedSections.length === 1
+                ? handleToggleStatus(selectedSections[0])
+                : setBulkDisableOpen(true)
+            }
+          >
+            Disable
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            icon={biTrash}
+            onClick={() =>
+              selectedSections.length === 1
+                ? openDeleteDialog(selectedSections[0])
+                : setBulkDeleteOpen(true)
+            }
+          >
+            Delete
+          </Button>
+        </div>
+      )}
+
       <TableCard
         title="All sections"
         subtitle={`${filteredSections.length} of ${sections.length} shown`}
@@ -653,18 +852,44 @@ export default function AdminSections() {
           <Table>
             <THead>
               <tr>
+                {selectMode && (
+                  <TH className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all sections"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                    />
+                  </TH>
+                )}
                 <TH>Mayor</TH>
                 <TH>Program</TH>
                 <TH>Year</TH>
                 <TH>Section</TH>
                 <TH>Shift</TH>
                 <TH>Status</TH>
-                <TH align="right">Actions</TH>
               </tr>
             </THead>
             <TBody>
               {filteredSections.map((section) => (
-                <TR key={section.id}>
+                <TR
+                  key={section.id}
+                  className="cursor-pointer"
+                  title={selectMode ? undefined : 'View section overview'}
+                  onClick={() => (selectMode ? toggleRowSelection(section.id) : openView(section))}
+                >
+                  {selectMode && (
+                    <TD onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select section ${section.section_name}`}
+                        checked={selectedIds.has(section.id)}
+                        onChange={() => toggleRowSelection(section.id)}
+                        className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                      />
+                    </TD>
+                  )}
                   <TD className="font-medium">{section.mayor_name}</TD>
                   <TD>{section.program}</TD>
                   <TD className="tabular">{section.year_level}</TD>
@@ -676,45 +901,6 @@ export default function AdminSections() {
                   </TD>
                   <TD>
                     <StatusBadge map={ACTIVE_STATUS} value={String(Boolean(section.is_active))} />
-                  </TD>
-                  <TD align="right">
-                    <RowActions label={`Actions for ${section.section_name}`}>
-                      <ActionButton
-                        icon={biEyeFill}
-                        label="View section details"
-                        tone="accent"
-                        onClick={() => openView(section)}
-                      />
-                      <ActionButton
-                        icon={biPencil}
-                        label="Edit section"
-                        tone="accent"
-                        onClick={() => handleOpenEdit(section)}
-                      />
-                      <ActionButton
-                        icon={biArrowRepeat}
-                        label="Regenerate student password"
-                        tone="accent"
-                        onClick={() => setRegenerateTarget(section)}
-                      />
-                      <ActionButton
-                        icon={section.is_active ? biToggleOff : biToggleOn}
-                        label={
-                          section.is_active
-                            ? 'Disable section and its student logins'
-                            : 'Enable section and its student logins'
-                        }
-                        tone={section.is_active ? 'bad' : 'ok'}
-                        disabled={togglingId === section.id}
-                        onClick={() => handleToggleStatus(section)}
-                      />
-                      <ActionButton
-                        icon={biTrash}
-                        label="Delete section"
-                        tone="bad"
-                        onClick={() => openDeleteDialog(section)}
-                      />
-                    </RowActions>
                   </TD>
                 </TR>
               ))}
@@ -891,6 +1077,17 @@ export default function AdminSections() {
         confirmLabel="Regenerate"
       />
 
+      {/* Bulk regenerate — same warning, pluralized for the whole selection. */}
+      <ConfirmDialog
+        open={bulkRegenerateOpen}
+        onClose={() => setBulkRegenerateOpen(false)}
+        onConfirm={handleBulkRegenerate}
+        loading={regenerating}
+        title={`Regenerate passwords for ${selectedSections.length} sections`}
+        description="A new password will be generated for every student account in the selected sections. Email addresses stay the same, but the current passwords stop working immediately."
+        confirmLabel="Regenerate"
+      />
+
       {/* Regenerated credentials */}
       <CredentialsModal
         open={Boolean(regenerated)}
@@ -953,6 +1150,66 @@ export default function AdminSections() {
         onImported={fetchSections}
       />
 
+      {/* Bulk disable — one reason shared across every selected section */}
+      <Modal
+        open={bulkDisableOpen}
+        onClose={() => {
+          setBulkDisableOpen(false)
+          setBulkDisableReason('')
+        }}
+        title={`Disable ${selectedSections.length} sections`}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setBulkDisableOpen(false)
+                setBulkDisableReason('')
+              }}
+              disabled={bulkSaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              icon={biToggleOff}
+              onClick={handleBulkDisable}
+              loading={bulkSaving}
+              disabled={!bulkDisableReason.trim()}
+            >
+              Disable sections
+            </Button>
+          </>
+        }
+      >
+        <div className="form-stack">
+          <p className="text-sm text-ink-muted">
+            Disabling signs out the student accounts of every selected section. Their data is
+            kept and you can switch them back on at any time.
+          </p>
+          <Textarea
+            label="Reason for deactivation"
+            required
+            rows={3}
+            value={bulkDisableReason}
+            onChange={(event) => setBulkDisableReason(event.target.value)}
+            placeholder="e.g. Classes suspended until further notice"
+            hint="Students see this on the page they land on when they try to sign in."
+          />
+        </div>
+      </Modal>
+
+      {/* Bulk delete */}
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
+        loading={bulkSaving}
+        title="Delete sections"
+        description={`Permanently delete ${selectedSections.length} sections, along with their student logins and everything attached — schedules, occupations, submissions, reports and cleaning records? This cannot be undone.`}
+        confirmLabel="Delete permanently"
+      />
+
       {/* Section overview */}
       <Modal
         open={Boolean(viewTarget)}
@@ -960,11 +1217,6 @@ export default function AdminSections() {
         title={viewTarget ? `Section overview — ${viewTarget.section_name}` : 'Section overview'}
         size="lg"
         bodyClassName="no-scrollbar"
-        footer={
-          <Button variant="secondary" onClick={closeView}>
-            Close
-          </Button>
-        }
       >
         {viewTarget && (
           <div className="flex flex-col gap-4">
@@ -1137,9 +1389,7 @@ export default function AdminSections() {
                           <THead>
                             <tr>
                               <TH>Date</TH>
-                              <TH>Subject</TH>
                               <TH>Room</TH>
-                              <TH>Status</TH>
                             </tr>
                           </THead>
                           <TBody>
@@ -1148,11 +1398,7 @@ export default function AdminSections() {
                                 <TD className="whitespace-nowrap">
                                   {formatDate(occupation.occupation_date)}
                                 </TD>
-                                <TD>{occupation.schedule?.subject_name || '—'}</TD>
                                 <TD className="tabular">{occupation.room?.room_code || '—'}</TD>
-                                <TD>
-                                  <StatusBadge map={OCCUPATION_STATUS} value={occupation.status} />
-                                </TD>
                               </TR>
                             ))}
                           </TBody>
@@ -1178,7 +1424,6 @@ export default function AdminSections() {
                             <tr>
                               <TH>Date</TH>
                               <TH>Area</TH>
-                              <TH>Status</TH>
                             </tr>
                           </THead>
                           <TBody>
@@ -1191,13 +1436,6 @@ export default function AdminSections() {
                                   {record.area?.name
                                     ? `${record.area.name}${record.area.floor ? ` (${record.area.floor})` : ''}`
                                     : '—'}
-                                </TD>
-                                <TD>
-                                  <Badge
-                                    tone={record.status === 'completed' ? 'ok' : 'warn'}
-                                  >
-                                    {record.status === 'completed' ? 'Completed' : 'Pending'}
-                                  </Badge>
                                 </TD>
                               </TR>
                             ))}

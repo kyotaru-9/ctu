@@ -195,11 +195,6 @@ export default function AdminAuditLogs() {
         onClose={() => setSelected(null)}
         title="Audit entry"
         size="sm"
-        footer={
-          <Button variant="secondary" onClick={() => setSelected(null)}>
-            Close
-          </Button>
-        }
       >
         {selected && (
           <DetailList

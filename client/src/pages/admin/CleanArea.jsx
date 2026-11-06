@@ -4,7 +4,6 @@ import { cleaningRecordService } from '../../services/cleaningRecordService'
 import AuditLogCalendar from '../../features/audit/AuditLogCalendar'
 import { formatDate, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
 import {
-  ActionButton,
   Alert,
   Badge,
   Button,
@@ -17,7 +16,6 @@ import {
   EmptyState,
   Modal,
   PageHeader,
-  RowActions,
   ScrollX,
   StatusBadge,
   TBody,
@@ -30,6 +28,7 @@ import {
 } from '../../components/ui'
 import {
   biCalendar,
+  biCheckSquare,
   biTrash,
 } from '../../utils/icons'
 
@@ -218,6 +217,9 @@ export default function AdminCleanArea() {
   const [error, setError] = useState('')
   const [showDayPicker, setShowDayPicker] = useState(false)
   const [viewDate, setViewDate] = useState(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
@@ -280,6 +282,61 @@ export default function AdminCleanArea() {
     }
   }
 
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelectedIds(new Set())
+      return !on
+    })
+  }
+
+  function toggleRecordSelection(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectedRecords = records.filter((record) => selectedIds.has(record.id))
+
+  function toggleAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (allVisibleSelected) {
+        filteredRecords.forEach((record) => next.delete(record.id))
+      } else {
+        filteredRecords.forEach((record) => next.add(record.id))
+      }
+      return next
+    })
+  }
+
+  /** Bulk delete — same per-record endpoint as the single delete, run in parallel. */
+  async function handleBulkDelete() {
+    setDeleting(true)
+    setError('')
+    try {
+      const results = await Promise.allSettled(
+        selectedRecords.map((record) => cleaningRecordService.delete(record.id))
+      )
+      const failed = results.filter(
+        (result) => result.status === 'rejected' || result.value?.success === false
+      ).length
+      if (failed > 0) {
+        setError(`${failed} of ${selectedRecords.length} records could not be deleted.`)
+      }
+      setSelectedIds(new Set())
+      setBulkDeleteOpen(false)
+      closeDetails()
+      await fetchRecords()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete records')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   // Days with records, counted from the list already loaded — the calendar
   // marks them the same way the audit log picker does, without a second query.
   const dayCounts = useMemo(() => {
@@ -308,15 +365,27 @@ export default function AdminCleanArea() {
     })
   }, [records, searchTerm, viewDate])
 
+  const allVisibleSelected =
+    filteredRecords.length > 0 && filteredRecords.every((record) => selectedIds.has(record.id))
+
   return (
     <>
       <PageHeader
         title="Clean Area Records"
         subtitle="View submitted before/after photos for rotational cleaning assignments."
         actions={
-          <Button variant="secondary" icon={biCalendar} onClick={() => setShowDayPicker(true)}>
-            Filter by date
-          </Button>
+          <>
+            <Button
+              variant={selectMode ? 'primary' : 'secondary'}
+              icon={biCheckSquare}
+              onClick={toggleSelectMode}
+            >
+              {selectMode ? 'Done' : 'Select'}
+            </Button>
+            <Button variant="secondary" icon={biCalendar} onClick={() => setShowDayPicker(true)}>
+              Filter by date
+            </Button>
+          </>
         }
       />
 
@@ -335,6 +404,21 @@ export default function AdminCleanArea() {
         >
           Cleaning records submitted on this day.
         </Alert>
+      )}
+
+      {selectMode && selectedRecords.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3">
+          <span className="text-sm font-medium text-ink">{selectedRecords.length} selected</span>
+          <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
+          <Button
+            size="sm"
+            variant="danger"
+            icon={biTrash}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            Delete
+          </Button>
+        </div>
       )}
 
       <TableCard
@@ -361,18 +445,44 @@ export default function AdminCleanArea() {
           <Table>
             <THead>
               <tr>
+                {selectMode && (
+                  <TH className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all records"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                    />
+                  </TH>
+                )}
                 <TH>Section</TH>
                 <TH>Area</TH>
                 <TH>Status</TH>
                 <TH>Before</TH>
                 <TH>After</TH>
                 <TH>Submitted</TH>
-                <TH align="right">Actions</TH>
               </tr>
             </THead>
             <TBody>
               {filteredRecords.map((record) => (
-                <TR key={record.id}>
+                <TR
+                  key={record.id}
+                  className={selectMode ? undefined : 'cursor-pointer'}
+                  title={selectMode ? undefined : 'View record details'}
+                  onClick={() => (selectMode ? toggleRecordSelection(record.id) : openDetails(record))}
+                >
+                  {selectMode && (
+                    <TD onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select record ${record.id}`}
+                        checked={selectedIds.has(record.id)}
+                        onChange={() => toggleRecordSelection(record.id)}
+                        className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                      />
+                    </TD>
+                  )}
                   <TD className="font-medium">{sectionLabel(record.section)}</TD>
                   <TD>{record.area?.name ? `${record.area.name} (${record.area.floor})` : '—'}</TD>
                   <TD>
@@ -387,24 +497,6 @@ export default function AdminCleanArea() {
                     <PhotoFlag imageUrl={record.after_image_url} label="After" />
                   </TD>
                   <TD className="text-sm">{formatDate(record.submitted_at)}</TD>
-                  <TD align="right">
-                    <div className="flex justify-end gap-2">
-                      <ActionButton
-                        text="View"
-                        label="View record details"
-                        tone="accent"
-                        onClick={() => openDetails(record)}
-                      />
-                      <RowActions label={`Actions for record`}>
-                        <ActionButton
-                          icon={biTrash}
-                          label="Delete record"
-                          tone="bad"
-                          onClick={() => openDeleteDialog(record)}
-                        />
-                      </RowActions>
-                    </div>
-                  </TD>
                 </TR>
               ))}
             </TBody>
@@ -420,9 +512,6 @@ export default function AdminCleanArea() {
         size="lg"
         footer={
           <div className="flex justify-end gap-3">
-            <Button variant="secondary" onClick={closeDetails}>
-              Close
-            </Button>
             <Button
               variant="bad"
               icon={biTrash}
@@ -552,6 +641,18 @@ export default function AdminCleanArea() {
         tone="bad"
         onClose={closeDeleteDialog}
         onConfirm={handleDelete}
+        loading={deleting}
+      />
+
+      {/* Bulk delete confirmation */}
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        title={`Delete ${selectedRecords.length} record${selectedRecords.length === 1 ? '' : 's'}`}
+        description="Permanently delete the selected cleaning records and their photos? This cannot be undone."
+        confirmLabel="Delete"
+        tone="bad"
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
         loading={deleting}
       />
     </>

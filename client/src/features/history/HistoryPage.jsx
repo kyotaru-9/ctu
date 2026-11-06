@@ -199,11 +199,6 @@ export default function HistoryPage() {
         onClose={() => setSelected(null)}
         title={selected ? `Submission · ${selected.room?.room_code ?? ''}` : 'Submission'}
         size="lg"
-        footer={
-          <Button variant="secondary" onClick={() => setSelected(null)}>
-            Close
-          </Button>
-        }
       >
         {selected && (
           <div className="flex flex-col gap-5">

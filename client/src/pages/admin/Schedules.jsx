@@ -4,11 +4,10 @@ import { scheduleService } from '../../services/scheduleService'
 import { sectionService } from '../../services/sectionService'
 import { educatorService } from '../../services/educatorService'
 import SchedulesBatchUploadModal from '../../features/schedules/SchedulesBatchUploadModal'
-import { biCloudUpload, biEye, biPencil, biPlus, biToggleOff, biToggleOn, biTrash } from '../../utils/icons'
+import { biCheckSquare, biCloudUpload, biPlus, biTrash } from '../../utils/icons'
 import { DAY_NAMES_LIST, dayName, formatDateTime, formatTime, sectionLabel } from '../../lib/format'
 import {
   ACTIVE_STATUS,
-  ActionButton,
   Alert,
   Badge,
   Button,
@@ -19,7 +18,6 @@ import {
   LoadingBlock,
   Modal,
   PageHeader,
-  RowActions,
   ScrollX,
   Select,
   StatusBadge,
@@ -31,54 +29,6 @@ import {
   Table,
   TableCard,
 } from '../../components/ui'
-
-const IMPACT_LABELS = {
-  occupations: 'occupation',
-  submissions: 'room submission',
-}
-
-/**
- * Names the history a schedule delete leaves behind without a class.
- *
- * Deliberately the opposite of the room delete's "Also deleted" list: nothing
- * listed here is destroyed. occupations.schedule_id is ON DELETE SET NULL, so the
- * occupation, its before/after photos and its reports are all kept — they simply
- * stop naming the class, and the subject column reads as missing on them from then
- * on. Labelling these as deleted would be the wrong warning.
- */
-function UnlinkedHistory({ impact }) {
-  const affected = Object.keys(IMPACT_LABELS)
-    .map((key) => [key, impact?.[key] ?? 0])
-    .filter(([, count]) => count > 0)
-
-  if (affected.length === 0) {
-    return (
-      <p className="mt-3 text-sm text-ink-muted">
-        Nothing has been recorded against this class, so deleting it leaves no history behind.
-      </p>
-    )
-  }
-
-  return (
-    <div className="mt-4 rounded-md border border-warn/30 bg-warn-soft p-3">
-      <p className="text-xs font-semibold tracking-wide text-warn uppercase">
-        Kept, but no longer linked to a class
-      </p>
-      <ul className="mt-2 flex flex-col gap-1">
-        {affected.map(([key, count]) => (
-          <li key={key} className="text-sm text-ink">
-            {count} {IMPACT_LABELS[key]}
-            {count === 1 ? '' : 's'}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-xs text-ink-muted">
-        These records and their photos are not deleted. They stop naming the subject, so the class
-        shows as missing on them from now on.
-      </p>
-    </div>
-  )
-}
 
 const BLANK_FORM = {
   section_id: '',
@@ -99,10 +49,6 @@ export default function AdminSchedules() {
   const [showForm, setShowForm] = useState(false)
   const [showBatchUpload, setShowBatchUpload] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState(null)
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [deleteImpact, setDeleteImpact] = useState(null)
-  const [deleteError, setDeleteError] = useState('')
-  const [impactLoading, setImpactLoading] = useState(false)
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -110,9 +56,10 @@ export default function AdminSchedules() {
   const [editLoading, setEditLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [deactivateTarget, setDeactivateTarget] = useState(null)
-  const [deactivating, setDeactivating] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
   const [formData, setFormData] = useState(BLANK_FORM)
@@ -294,82 +241,61 @@ export default function AdminSchedules() {
     }
   }
 
-  /**
-   * Deactivating asks first, the same gate the delete dialog uses: both take
-   * the class off the timetable. Enabling goes straight through.
-   */
-  function handleToggleStatus(schedule) {
-    if (schedule.is_active) {
-      setDeactivateTarget(schedule)
-      return
-    }
-    applyStatus(schedule, true)
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelectedIds(new Set())
+      return !on
+    })
   }
 
-  async function applyStatus(schedule, nextActive) {
-    try {
-      const response = await scheduleService.update(schedule.id, { is_active: nextActive })
-      if (response.success) await fetchSchedules()
-      return response.success
-    } catch {
-      // Non-critical.
-      return false
-    }
+  function toggleScheduleSelection(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
-  async function handleConfirmDeactivate() {
-    if (!deactivateTarget) return
-    setDeactivating(true)
-    try {
-      const ok = await applyStatus(deactivateTarget, false)
-      if (ok) setDeactivateTarget(null)
-    } finally {
-      setDeactivating(false)
-    }
-  }
+  const selectedSchedules = schedules.filter((schedule) => selectedIds.has(schedule.id))
 
-  // Opened through here rather than straight into the dialog, so the cost is on
-  // screen before the confirm is offered — the prompt states what the delete takes
-  // with it, which it can only do if the count has already arrived.
-  const handleOpenDelete = useCallback(async (schedule) => {
-    setDeleteTarget(schedule)
-    setDeleteImpact(null)
-    setDeleteError('')
-    setImpactLoading(true)
-    try {
-      const response = await scheduleService.getDeleteImpact(schedule.id)
-      if (response.success) setDeleteImpact(response.data)
-    } catch {
-      // The delete itself reports its own failure; not knowing the count in
-      // advance is not worth blocking the dialog for.
-    } finally {
-      setImpactLoading(false)
-    }
-  }, [])
+  const allVisibleSelected =
+    filteredSchedules.length > 0 &&
+    filteredSchedules.every((schedule) => selectedIds.has(schedule.id))
 
-  const handleCloseDelete = useCallback(() => {
-    setDeleteTarget(null)
-    setDeleteImpact(null)
-    setDeleteError('')
-    setImpactLoading(false)
-  }, [])
-
-  async function handleDelete() {
-    if (!deleteTarget) return
-    setDeleting(true)
-    setDeleteError('')
-    try {
-      const response = await scheduleService.delete(deleteTarget.id)
-      if (response.success) {
-        handleCloseDelete()
-        await fetchSchedules()
+  function toggleAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (allVisibleSelected) {
+        filteredSchedules.forEach((schedule) => next.delete(schedule.id))
       } else {
-        setDeleteError(response.message || 'Failed to delete the schedule')
+        filteredSchedules.forEach((schedule) => next.add(schedule.id))
       }
+      return next
+    })
+  }
+
+  /** Bulk delete — same per-schedule endpoint, run in parallel. */
+  async function handleBulkDelete() {
+    setBulkSaving(true)
+    setError('')
+    try {
+      const results = await Promise.allSettled(
+        selectedSchedules.map((schedule) => scheduleService.delete(schedule.id))
+      )
+      const failed = results.filter(
+        (result) => result.status === 'rejected' || result.value?.success === false
+      ).length
+      if (failed > 0) {
+        setError(`${failed} of ${selectedSchedules.length} schedules could not be deleted.`)
+      }
+      setSelectedIds(new Set())
+      setBulkDeleteOpen(false)
+      await fetchSchedules()
     } catch (err) {
-      setDeleteError(err.response?.data?.message || 'Failed to delete the schedule')
+      setError(err.response?.data?.message || 'Failed to delete schedules')
     } finally {
-      setDeleting(false)
+      setBulkSaving(false)
     }
   }
 
@@ -380,6 +306,13 @@ export default function AdminSchedules() {
         subtitle="Manage class schedules and room assignments"
         actions={
           <>
+            <Button
+              variant={selectMode ? 'primary' : 'secondary'}
+              icon={biCheckSquare}
+              onClick={toggleSelectMode}
+            >
+              {selectMode ? 'Done' : 'Select'}
+            </Button>
             <Button variant="secondary" icon={biCloudUpload} onClick={() => setShowBatchUpload(true)}>
               Batch upload
             </Button>
@@ -394,6 +327,21 @@ export default function AdminSchedules() {
         <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
           {error}
         </Alert>
+      )}
+
+      {selectMode && selectedSchedules.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3">
+          <span className="text-sm font-medium text-ink">{selectedSchedules.length} selected</span>
+          <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
+          <Button
+            size="sm"
+            variant="danger"
+            icon={biTrash}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            Delete
+          </Button>
+        </div>
       )}
 
       <TableCard
@@ -420,6 +368,17 @@ export default function AdminSchedules() {
           <Table>
             <THead>
               <tr>
+                {selectMode && (
+                  <TH className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all schedules"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                    />
+                  </TH>
+                )}
                 <TH>Section</TH>
                 <TH>Room</TH>
                 <TH>Subject</TH>
@@ -428,12 +387,29 @@ export default function AdminSchedules() {
                 <TH>Start</TH>
                 <TH>End</TH>
                 <TH>Status</TH>
-                <TH align="right">Actions</TH>
               </tr>
             </THead>
             <TBody>
               {filteredSchedules.map((schedule) => (
-                <TR key={schedule.id}>
+                <TR
+                  key={schedule.id}
+                  className={selectMode ? undefined : 'cursor-pointer'}
+                  title={selectMode ? undefined : 'View schedule details'}
+                  onClick={() =>
+                    selectMode ? toggleScheduleSelection(schedule.id) : openDetails(schedule)
+                  }
+                >
+                  {selectMode && (
+                    <TD onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select schedule ${schedule.id}`}
+                        checked={selectedIds.has(schedule.id)}
+                        onChange={() => toggleScheduleSelection(schedule.id)}
+                        className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                      />
+                    </TD>
+                  )}
                   <TD className="font-medium">{sectionLabel(schedule.section)}</TD>
                   <TD className="tabular">{schedule.room?.room_code || '—'}</TD>
                   <TD>{schedule.subject_name}</TD>
@@ -443,34 +419,6 @@ export default function AdminSchedules() {
                   <TD className="tabular whitespace-nowrap">{formatTime(schedule.end_time)}</TD>
                   <TD>
                     <StatusBadge map={ACTIVE_STATUS} value={String(Boolean(schedule.is_active))} />
-                  </TD>
-                  <TD align="right">
-                    <RowActions label={`Actions for ${schedule.subject_name}`}>
-                      <ActionButton
-                        icon={biEye}
-                        label="View schedule details"
-                        tone="accent"
-                        onClick={() => openDetails(schedule)}
-                      />
-                      <ActionButton
-                        icon={biPencil}
-                        label="Edit schedule"
-                        tone="accent"
-                        onClick={() => handleOpenEdit(schedule)}
-                      />
-                      <ActionButton
-                        icon={schedule.is_active ? biToggleOff : biToggleOn}
-                        label={schedule.is_active ? 'Deactivate schedule' : 'Activate schedule'}
-                        tone={schedule.is_active ? 'bad' : 'ok'}
-                        onClick={() => handleToggleStatus(schedule)}
-                      />
-                      <ActionButton
-                        icon={biTrash}
-                        label="Delete schedule"
-                        tone="bad"
-                        onClick={() => handleOpenDelete(schedule)}
-                      />
-                    </RowActions>
                   </TD>
                 </TR>
               ))}
@@ -485,21 +433,16 @@ export default function AdminSchedules() {
         title="Schedule details"
         size="lg"
         footer={
-          <>
-            <Button variant="secondary" onClick={closeDetails}>
-              Close
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                const target = detail || selected
-                closeDetails()
-                handleOpenEdit(target)
-              }}
-            >
-              Edit schedule
-            </Button>
-          </>
+          <Button
+            variant="primary"
+            onClick={() => {
+              const target = detail || selected
+              closeDetails()
+              handleOpenEdit(target)
+            }}
+          >
+            Edit schedule
+          </Button>
         }
       >
         {selected && detail && (
@@ -659,48 +602,17 @@ export default function AdminSchedules() {
         </form>
       </Modal>
 
-      {/* Deactivate confirmation — the toggle's off-switch gets the same gate
-          as the delete dialog. */}
+      {/* Bulk delete confirmation */}
       <ConfirmDialog
-        open={Boolean(deactivateTarget)}
-        onClose={() => setDeactivateTarget(null)}
-        onConfirm={handleConfirmDeactivate}
-        loading={deactivating}
-        title="Deactivate schedule"
-        description={
-          deactivateTarget
-            ? `Deactivate the ${deactivateTarget.subject_name} schedule for ${sectionLabel(deactivateTarget.section)}? It comes off the timetable until reactivated; recorded history is kept.`
-            : ''
-        }
-        confirmLabel="Deactivate"
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
+        loading={bulkSaving}
+        title={`Delete ${selectedSchedules.length} schedule${selectedSchedules.length === 1 ? '' : 's'}`}
+        description="Permanently delete the selected schedules? Recorded occupations keep their history but stop naming the class. This cannot be undone."
+        confirmLabel="Delete schedules"
         tone="bad"
       />
-
-      <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        onClose={handleCloseDelete}
-        onConfirm={handleDelete}
-        loading={deleting}
-        title="Delete schedule"
-        description={
-          deleteTarget
-            ? `Permanently delete the ${deleteTarget.subject_name} schedule for ${sectionLabel(deleteTarget.section)}? This cannot be undone. To take a class off the timetable without ending its history, use the toggle instead.`
-            : ''
-        }
-        confirmLabel="Delete schedule"
-      >
-        {deleteError && (
-          <Alert tone="bad" className="mt-3">
-            {deleteError}
-          </Alert>
-        )}
-
-        {impactLoading ? (
-          <p className="mt-3 text-sm text-ink-muted">Checking what this class has recorded…</p>
-        ) : (
-          deleteImpact && <UnlinkedHistory impact={deleteImpact} />
-        )}
-      </ConfirmDialog>
 
       {/* The section and room lists are already on this page, so the import
           reuses them rather than fetching a second copy to validate against. */}

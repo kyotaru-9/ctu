@@ -123,20 +123,15 @@ export default function AuditLogCleanupModal({ open, onClose, onDeleted }) {  co
         title="Clean up audit logs"
         size="lg"
         footer={
-          <>
-            <Button variant="secondary" onClick={close} disabled={deleting}>
-              Close
-            </Button>
-            <Button
-              variant="danger"
-              icon={biTrash}
-              onClick={() => setConfirm({ before: false })}
-              disabled={nothingSelected}
-              loading={deleting}
-            >
-              Delete selected {selectedCount} {selectedCount === 1 ? 'entry' : 'entries'}
-            </Button>
-          </>
+          <Button
+            variant="danger"
+            icon={biTrash}
+            onClick={() => setConfirm({ before: false })}
+            disabled={nothingSelected}
+            loading={deleting}
+          >
+            Delete selected {selectedCount} {selectedCount === 1 ? 'entry' : 'entries'}
+          </Button>
         }
       >
         <div className="flex flex-col gap-4">

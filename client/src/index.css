@@ -223,10 +223,10 @@
     min-height: 2.5rem;
   }
 
-  /* Scrollbars: thin and unobtrusive. */
+  /* Scrollbars: present for scrolling but fully transparent. */
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--color-line-strong) transparent;
+    scrollbar-color: transparent transparent;
   }
 
   ::-webkit-scrollbar {
@@ -235,7 +235,7 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: var(--color-line-strong);
+    background-color: transparent;
     border: 3px solid transparent;
     background-clip: content-box;
     border-radius: 999px;

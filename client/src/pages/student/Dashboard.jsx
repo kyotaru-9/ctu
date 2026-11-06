@@ -7,8 +7,6 @@ import {
   biCalendar,
   biCamera,
   biClockHistory,
-  biExclamation,
-  biQRCode,
 } from '../../utils/icons'
 import { formatTime, welcomeText } from '../../lib/format'
 import {
@@ -176,7 +174,7 @@ export default function StudentDashboard() {
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Today's stats</CardTitle>
+            <CardTitle>Today&apos;s stats</CardTitle>
           </CardHeader>
           <CardBody>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -310,7 +308,7 @@ export default function StudentDashboard() {
                 >
                   <IconTile icon={biClockHistory} tone={rotationalData?.existingRecord?.status === 'completed' ? 'ok' : 'neutral'} size="sm" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-ink">Today's Cleaning</p>
+                    <p className="text-sm font-medium text-ink">Today&apos;s Cleaning</p>
                     <p className="mt-0.5 text-xs text-ink-muted">
                       {rotationalData?.assignment?.area?.name}
                     </p>

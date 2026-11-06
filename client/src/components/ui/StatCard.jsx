@@ -85,8 +85,8 @@ function FeatureStatCard({ label, value, hint, icon, tone, size, footer, classNa
         )}
       </div>
 
-      <div>
-        <p className="tabular text-4xl leading-none font-semibold tracking-tight text-ink sm:text-5xl">
+      <div className="text-center">
+        <p className="tabular text-6xl leading-none font-semibold tracking-tight text-ink sm:text-8xl">
           {value ?? '—'}
         </p>
         {hint && <p className="mt-2 text-sm text-ink-muted">{hint}</p>}

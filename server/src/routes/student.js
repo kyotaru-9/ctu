@@ -230,9 +230,10 @@ router.post('/submissions/before', upload.single('image'), async (req, res) => {
       occupationQuery = occupationQuery.eq('schedule_id', schedule_id)
     }
     
-    let occupation = await occupationQuery.limit(1).single()
-    
-    if (!occupation.data) {
+    const { data: existingOccupation } = await occupationQuery.limit(1).maybeSingle()
+    let occupationRow = existingOccupation
+
+    if (!occupationRow) {
       const insertData = {
         section_id: req.user.section_id,
         room_id,
@@ -244,12 +245,12 @@ router.post('/submissions/before', upload.single('image'), async (req, res) => {
       }
       const { data: newOcc, error: occError } = await supabaseAdmin.from('occupations').insert(insertData).select().single()
       if (occError) throw occError
-      occupation = newOcc
+      occupationRow = newOcc
     }
 
     // Create submission
     const { data, error } = await supabaseAdmin.from('room_submissions').insert({
-      occupation_id: occupation.data.id,
+      occupation_id: occupationRow.id,
       section_id: req.user.section_id,
       room_id,
       submission_type: 'before',
@@ -324,9 +325,10 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
       occupationQuery = occupationQuery.eq('schedule_id', schedule_id)
     }
     
-    let occupation = await occupationQuery.limit(1).single()
-    
-    if (!occupation.data) {
+    const { data: existingOccupation } = await occupationQuery.limit(1).maybeSingle()
+    let occupationRow = existingOccupation
+
+    if (!occupationRow) {
       const insertData = {
         section_id: req.user.section_id,
         room_id,
@@ -338,11 +340,11 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
       }
       const { data: newOcc, error: occError } = await supabaseAdmin.from('occupations').insert(insertData).select().single()
       if (occError) throw occError
-      occupation = newOcc
+      occupationRow = newOcc
     }
 
     const { data, error } = await supabaseAdmin.from('room_submissions').insert({
-      occupation_id: occupation.data.id,
+      occupation_id: occupationRow.id,
       section_id: req.user.section_id,
       room_id,
       submission_type: 'after',
@@ -356,9 +358,9 @@ router.post('/submissions/after', upload.single('image'), async (req, res) => {
     if (error) throw error
 
     // Update occupation status if both before and after are submitted
-    const { data: subs } = await supabaseAdmin.from('room_submissions').select('*').eq('occupation_id', occupation.data.id)
+    const { data: subs } = await supabaseAdmin.from('room_submissions').select('*').eq('occupation_id', occupationRow.id)
     if (subs && subs.length === 2) {
-      await supabaseAdmin.from('occupations').update({ status: 'completed', ended_at: new Date().toISOString() }).eq('id', occupation.data.id)
+      await supabaseAdmin.from('occupations').update({ status: 'completed', ended_at: new Date().toISOString() }).eq('id', occupationRow.id)
     }
 
     res.json({ success: true, data })

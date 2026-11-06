@@ -143,7 +143,7 @@ export default function AuditLogCalendar({
                     : undefined
                 }
                 className={cx(
-                  'relative flex aspect-square flex-col items-center justify-center rounded-md text-sm transition-colors',
+                  'group relative flex aspect-square flex-col items-center justify-center rounded-md text-sm transition-colors',
                   cell.inMonth
                     ? 'cursor-pointer hover:bg-surface-sunken'
                     : 'cursor-default text-ink-subtle/40',
@@ -152,6 +152,18 @@ export default function AuditLogCalendar({
                   !isSelected && !isAnchor && isToday && 'ring-1 ring-accent/25'
                 )}
               >
+                {/* Hover expands the day into its full date and record count. */}
+                {cell.inMonth && (
+                  <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[0.6875rem] font-medium text-white group-hover:block">
+                    {cell.date.toLocaleDateString(undefined, {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                    {cell.count > 0 &&
+                      ` · ${cell.count} ${cell.count === 1 ? 'entry' : 'entries'}`}
+                  </span>
+                )}
                 <span className={cx(isSelected ? 'text-white' : cell.inMonth ? 'text-ink' : '')}>
                   {cell.date.getDate()}
                 </span>

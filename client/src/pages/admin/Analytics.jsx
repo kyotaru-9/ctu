@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
-import { analyticsService } from '../../services/analyticsService'
+import { useCallback, useEffect, useState } from 'react'
+import { analyticsDayParams, analyticsService } from '../../services/analyticsService'
+import DayPickerModal from '../../components/DayPickerModal'
 import { formatDate, sectionLabel } from '../../lib/format'
+import { biCalendar } from '../../utils/icons'
 import {
   Alert,
   BarList,
   BentoGrid,
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -55,46 +58,91 @@ export default function AdminAnalytics() {
   const [timeTrends, setTimeTrends] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [viewDates, setViewDates] = useState([])
+  const [showDayPicker, setShowDayPicker] = useState(false)
+  const [dayCounts, setDayCounts] = useState({})
 
+  // Counts per day for the picker calendar — fetched once, independent of the
+  // date filter so the marked days do not disappear when one is picked.
   useEffect(() => {
     let cancelled = false
-
-    async function fetchAnalytics() {
-      try {
-        const [overviewRes, complianceRes, issuesRes, reasonsRes, trendsRes] = await Promise.all([
-          analyticsService.getOverview(),
-          analyticsService.getSectionCompliance(),
-          analyticsService.getRoomIssues(),
-          analyticsService.getReportReasons(),
-          analyticsService.getTrends(),
-        ])
-        if (cancelled) return
-
-        if (overviewRes.success) setOverview(overviewRes.data)
-        if (complianceRes.success) setSectionCompliance(complianceRes.data)
-        if (issuesRes.success) setRoomIssues(issuesRes.data)
-        if (reasonsRes.success) setReportReasons(reasonsRes.data)
-        if (trendsRes.success) setTimeTrends(trendsRes.data)
-      } catch (err) {
-        if (!cancelled) setError(err.response?.data?.message || 'Failed to load analytics')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    fetchAnalytics()
+    analyticsService
+      .getDates()
+      .then((response) => {
+        if (cancelled || !response.success) return
+        const counts = {}
+        for (const entry of response.data.dates) counts[entry.date] = entry.count
+        setDayCounts(counts)
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
   }, [])
 
+  const fetchAnalytics = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = analyticsDayParams(viewDates)
+      const [overviewRes, complianceRes, issuesRes, reasonsRes, trendsRes] = await Promise.all([
+        analyticsService.getOverview(params),
+        analyticsService.getSectionCompliance(params),
+        analyticsService.getRoomIssues(params),
+        analyticsService.getReportReasons(params),
+        analyticsService.getTrends(params),
+      ])
+
+      if (overviewRes.success) setOverview(overviewRes.data)
+      if (complianceRes.success) setSectionCompliance(complianceRes.data)
+      if (issuesRes.success) setRoomIssues(issuesRes.data)
+      if (reasonsRes.success) setReportReasons(reasonsRes.data)
+      if (trendsRes.success) setTimeTrends(trendsRes.data)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load analytics')
+    } finally {
+      setLoading(false)
+    }
+  }, [viewDates])
+
+  useEffect(() => {
+    fetchAnalytics()
+  }, [fetchAnalytics])
+
   return (
     <>
-      <PageHeader title="Analytics" subtitle="Monitor cleanliness trends and compliance" />
+      <PageHeader
+        title="Analytics"
+        subtitle="Monitor cleanliness trends and compliance"
+        actions={
+          <Button
+            variant="secondary"
+            icon={biCalendar}
+            onClick={() => setShowDayPicker(true)}
+          >
+            Filter by date
+          </Button>
+        }
+      />
 
       {error && (
         <Alert tone="bad" onDismiss={() => setError('')} className="mb-5">
           {error}
+        </Alert>
+      )}
+
+      {viewDates.length > 0 && (
+        <Alert
+          tone="info"
+          className="mb-5"
+          onDismiss={() => setViewDates([])}
+          title={
+            viewDates.length === 1
+              ? `Showing ${formatDate(viewDates[0])} only`
+              : `Showing ${viewDates.length} selected days`
+          }
+        >
+          Reports and submissions from the selected days. Section compliance shows the periods
+          containing them.
         </Alert>
       )}
 
@@ -248,7 +296,11 @@ export default function AdminAnalytics() {
 
             <Panel
               title="Time trends"
-              subtitle="Reports and submissions per period"
+              subtitle={
+                viewDates.length > 0
+                  ? 'Reports and submissions by hour'
+                  : 'Reports and submissions per period'
+              }
               isEmpty={timeTrends.length === 0}
               emptyLabel="No trend data yet"
             >
@@ -280,6 +332,15 @@ export default function AdminAnalytics() {
           </div>
         </>
       )}
+
+      <DayPickerModal
+        open={showDayPicker}
+        onClose={() => setShowDayPicker(false)}
+        onDaysChange={setViewDates}
+        selectedDays={viewDates}
+        counts={dayCounts}
+        description="Pick days to show only the reports and submissions from them. Click a day to toggle it; hold shift to select a range. Days with activity are marked with a count."
+      />
     </>
   )
 }

@@ -62,7 +62,7 @@ export default function ConditionWizard({ type }) {
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
   const [existingSubmissions, setExistingSubmissions] = useState([])
-  const [loadingSubmissions, setLoadingSubmissions] = useState(true)
+  const [, setLoadingSubmissions] = useState(true)
 
   const selectedRoom = rooms.find((room) => room.id === roomId)
   const selectedSchedule = schedules.find((schedule) => schedule.id === scheduleId)

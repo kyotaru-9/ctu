@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { educatorService } from '../../services/educatorService'
 import EducatorsBatchUploadModal from '../../features/educators/EducatorsBatchUploadModal'
 import {
+  biCheckSquare,
   biCloudUpload,
   biPencil,
   biPlus,
@@ -40,6 +41,11 @@ const BLANK_FORM = {
   department: '',
 }
 
+const DEPARTMENT_OPTIONS = [
+  { value: 'Education', label: 'Education' },
+  { value: 'Technology', label: 'Technology' },
+]
+
 export default function AdminEducators() {
   const [educators, setEducators] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -55,6 +61,13 @@ export default function AdminEducators() {
   const [togglingId, setTogglingId] = useState(null)
   const [deactivateTarget, setDeactivateTarget] = useState(null)
   const [formData, setFormData] = useState(BLANK_FORM)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkDeptOpen, setBulkDeptOpen] = useState(false)
+  const [bulkDept, setBulkDept] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkDisableOpen, setBulkDisableOpen] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
 
   const fetchEducators = useCallback(async () => {
     setLoading(true)
@@ -62,6 +75,11 @@ export default function AdminEducators() {
       const response = await educatorService.getAll()
       if (response.success) {
         setEducators(response.data)
+        setSelectedIds((current) => {
+          const alive = new Set(response.data.map((educator) => educator.id))
+          return new Set([...current].filter((id) => alive.has(id)))
+        })
+        return response.data
       } else {
         setError(response.message || 'Failed to load educators')
       }
@@ -86,6 +104,37 @@ export default function AdminEducators() {
   }, [educators, searchTerm])
 
   const activeCount = educators.filter((educator) => educator.is_active).length
+
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelectedIds(new Set())
+      return !on
+    })
+  }
+
+  function toggleRowSelection(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const allVisibleSelected =
+    filteredEducators.length > 0 && filteredEducators.every((educator) => selectedIds.has(educator.id))
+
+  function toggleAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (allVisibleSelected) {
+        filteredEducators.forEach((educator) => next.delete(educator.id))
+      } else {
+        filteredEducators.forEach((educator) => next.add(educator.id))
+      }
+      return next
+    })
+  }
 
   function update(field, value) {
     setFormData((previous) => ({ ...previous, [field]: value }))
@@ -226,6 +275,76 @@ export default function AdminEducators() {
     }
   }
 
+  const selectedEducators = educators.filter((educator) => selectedIds.has(educator.id))
+
+  /**
+   * Runs one update against every selected educator and reports how many
+   * failed. Selection is cleared afterwards either way — a partial failure is
+   * surfaced through the error alert and the list re-syncs from the server.
+   */
+  async function runBulkUpdate(patch, failureMessage) {
+    setBulkSaving(true)
+    setError('')
+    try {
+      const results = await Promise.allSettled(
+        selectedEducators.map((educator) => educatorService.update(educator.id, patch))
+      )
+      const failed = results.filter(
+        (result) => result.status === 'rejected' || result.value?.success === false
+      ).length
+      if (failed > 0) {
+        setError(`${failed} of ${results.length} educators could not be updated. ${failureMessage}`)
+      }
+      setSelectedIds(new Set())
+      await fetchEducators()
+      return failed === 0
+    } catch (err) {
+      setError(err.response?.data?.message || failureMessage)
+      return false
+    } finally {
+      setBulkSaving(false)
+    }
+  }
+
+  async function handleBulkDepartment() {
+    const ok = await runBulkUpdate(
+      { department: bulkDept },
+      'Failed to update the department'
+    )
+    if (ok) {
+      setBulkDeptOpen(false)
+      setBulkDept('')
+    }
+  }
+
+  async function handleBulkDisable() {
+    const ok = await runBulkUpdate({ is_active: false }, 'Failed to disable educators')
+    if (ok) setBulkDisableOpen(false)
+  }
+
+  async function handleBulkDelete() {
+    setBulkSaving(true)
+    setError('')
+    try {
+      const results = await Promise.allSettled(
+        selectedEducators.map((educator) => educatorService.delete(educator.id))
+      )
+      const failed = results.filter(
+        (result) => result.status === 'rejected' || result.value?.success === false
+      ).length
+      if (failed > 0) {
+        setError(`${failed} of ${results.length} educators could not be deleted.`)
+      }
+      setSelectedIds(new Set())
+      await fetchEducators()
+      if (failed === 0) setBulkDeleteOpen(false)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete educators')
+    } finally {
+      setBulkSaving(false)
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -233,6 +352,13 @@ export default function AdminEducators() {
         subtitle="Manage educators and their departments. Educators are assigned to schedules."
         actions={
           <>
+            <Button
+              variant={selectMode ? 'primary' : 'secondary'}
+              icon={biCheckSquare}
+              onClick={toggleSelectMode}
+            >
+              {selectMode ? 'Done' : 'Select'}
+            </Button>
             <Button variant="secondary" icon={biCloudUpload} onClick={() => setShowBatchUpload(true)}>
               Batch upload
             </Button>
@@ -269,6 +395,44 @@ export default function AdminEducators() {
         </BentoGrid>
       )}
 
+      {selectMode && selectedEducators.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3">
+          <span className="text-sm font-medium text-ink">{selectedEducators.length} selected</span>
+          <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() =>
+              selectedEducators.length === 1
+                ? handleOpenEdit(selectedEducators[0])
+                : setBulkDeptOpen(true)
+            }
+          >
+            {selectedEducators.length === 1 ? 'Edit educator' : 'Edit department'}
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={biToggleOff}
+            onClick={() => setBulkDisableOpen(true)}
+          >
+            Disable
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            icon={biTrash}
+            onClick={() =>
+              selectedEducators.length === 1
+                ? openDeleteDialog(selectedEducators[0])
+                : setBulkDeleteOpen(true)
+            }
+          >
+            Delete
+          </Button>
+        </div>
+      )}
+
       <TableCard
         title="All educators"
         subtitle={`${filteredEducators.length} of ${educators.length} shown`}
@@ -293,6 +457,17 @@ export default function AdminEducators() {
           <Table>
             <THead>
               <tr>
+                {selectMode && (
+                  <TH className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all educators"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                    />
+                  </TH>
+                )}
                 <TH>Name</TH>
                 <TH>Department</TH>
                 <TH>Status</TH>
@@ -301,7 +476,22 @@ export default function AdminEducators() {
             </THead>
             <TBody>
               {filteredEducators.map((educator) => (
-                <TR key={educator.id}>
+                <TR
+                  key={educator.id}
+                  className={selectMode ? 'cursor-pointer' : undefined}
+                  onClick={selectMode ? () => toggleRowSelection(educator.id) : undefined}
+                >
+                  {selectMode && (
+                    <TD onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select educator ${educator.name}`}
+                        checked={selectedIds.has(educator.id)}
+                        onChange={() => toggleRowSelection(educator.id)}
+                        className="h-4 w-4 rounded-xs border-line-strong accent-accent"
+                      />
+                    </TD>
+                  )}
                   <TD className="font-medium">{educator.name}</TD>
                   <TD>{educator.department}</TD>
                   <TD>
@@ -369,11 +559,13 @@ export default function AdminEducators() {
               onChange={(event) => update('name', event.target.value)}
               error={fieldErrors.name}
             />
-            <Input
+            <Select
               label="Department"
               required
               value={formData.department}
               onChange={(event) => update('department', event.target.value)}
+              placeholder="Select department"
+              options={DEPARTMENT_OPTIONS}
               error={fieldErrors.department}
             />
           </div>
@@ -419,6 +611,64 @@ export default function AdminEducators() {
         open={showBatchUpload}
         onClose={() => setShowBatchUpload(false)}
         onImported={fetchEducators}
+      />
+
+      {/* Bulk edit department */}
+      <Modal
+        open={bulkDeptOpen}
+        onClose={() => setBulkDeptOpen(false)}
+        title={`Edit department — ${selectedEducators.length} educator${selectedEducators.length === 1 ? '' : 's'}`}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setBulkDeptOpen(false)}
+              disabled={bulkSaving}
+            >
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleBulkDepartment} loading={bulkSaving}>
+              Apply department
+            </Button>
+          </>
+        }
+      >
+        <div className="form-stack">
+          <p className="text-sm text-ink-muted">
+            Every selected educator gets the same department.
+          </p>
+          <Select
+            label="Department"
+            value={bulkDept}
+            onChange={(event) => setBulkDept(event.target.value)}
+            placeholder="Select department"
+            options={DEPARTMENT_OPTIONS}
+          />
+        </div>
+      </Modal>
+
+      {/* Bulk disable */}
+      <ConfirmDialog
+        open={bulkDisableOpen}
+        onClose={() => setBulkDisableOpen(false)}
+        onConfirm={handleBulkDisable}
+        loading={bulkSaving}
+        title="Disable educators"
+        description={`Deactivate ${selectedEducators.length} educator${selectedEducators.length === 1 ? '' : 's'}? They will be removed from the active educator list and can't be assigned to new schedules.`}
+        confirmLabel="Disable"
+        tone="bad"
+      />
+
+      {/* Bulk delete */}
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
+        loading={bulkSaving}
+        title="Delete educators"
+        description={`Permanently delete ${selectedEducators.length} educators? Schedules already assigned to them keep their records but lose the educator link.`}
+        confirmLabel="Delete permanently"
+        tone="bad"
       />
     </>
   )

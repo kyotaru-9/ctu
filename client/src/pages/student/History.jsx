@@ -410,11 +410,6 @@ export default function StudentHistory() {
         onClose={() => setSelectedRoom(null)}
         title={selectedRoom ? `Submission · ${selectedRoom.room?.room_code ?? ''}` : 'Submission'}
         size="lg"
-        footer={
-          <Button variant="secondary" onClick={() => setSelectedRoom(null)}>
-            Close
-          </Button>
-        }
       >
         {selectedRoom && (
           <div className="flex flex-col gap-5">
@@ -444,11 +439,6 @@ export default function StudentHistory() {
         onClose={() => setSelectedRotational(null)}
         title={selectedRotational ? `Cleaning · ${selectedRotational.area?.name ?? ''}` : 'Cleaning'}
         size="lg"
-        footer={
-          <Button variant="secondary" onClick={() => setSelectedRotational(null)}>
-            Close
-          </Button>
-        }
       >
         {selectedRotational && (
           <div className="flex flex-col gap-5">

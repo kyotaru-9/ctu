@@ -30,6 +30,11 @@ export const reportService = {
     return response.data
   },
 
+  async deleteReports(ids) {
+    const response = await api.delete('/admin/reports', { data: { ids } })
+    return response.data
+  },
+
   async updateStatus(id, status, adminNote = '') {
     const response = await api.patch(`/admin/reports/${id}/status`, { status, admin_note: adminNote })
     return response.data

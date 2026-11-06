@@ -384,11 +384,6 @@ export default function ReportsPage({ heading = 'Reports' }) {
         onClose={() => setSelected(null)}
         title="Report details"
         size="lg"
-        footer={
-          <Button variant="secondary" onClick={() => setSelected(null)}>
-            Close
-          </Button>
-        }
       >
         {selected && (
           <div className="flex flex-col gap-5">
